@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useSync } from "@/contexts/SyncContext";
+import { addExpense, deleteExpense, getCategories, getExpensesForMonth, getMonthlySpending } from "@/lib/database";
 import { formatCurrency, type Budget, type Category, type ExpenseWithCategory } from "@/lib/types";
-import { getCategories, addExpense, getExpensesForMonth, getMonthlySpending, deleteExpense } from "@/lib/database";
-import { Numpad } from "./Numpad";
+import { cn } from "@/lib/utils";
+import { ChevronDown, ChevronUp, MessageSquare, Settings } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { CategorySelector } from "./CategorySelector";
 import { ExpenseList } from "./ExpenseList";
-import { Button } from "@/components/ui/button";
-import { Settings, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
+import { Numpad } from "./Numpad";
+import { OfflineBanner } from "./OfflineBanner";
+import { SyncIndicator } from "./SyncIndicator";
 
 interface HomeScreenProps {
   budget: Budget;
@@ -15,6 +18,7 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ budget, onEditBudget, onViewFeedback }: HomeScreenProps) {
+  const { refreshStatus } = useSync();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -62,6 +66,7 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback }: HomeScreenP
       setSelectedCategory(null);
       setShowCategories(false);
       await loadData();
+      await refreshStatus(); // Update sync indicator
     } catch (error) {
       console.error('Failed to add expense:', error);
     } finally {
@@ -73,6 +78,7 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback }: HomeScreenP
     try {
       await deleteExpense(id);
       await loadData();
+      await refreshStatus(); // Update sync indicator
     } catch (error) {
       console.error('Failed to delete expense:', error);
     }
@@ -88,10 +94,14 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback }: HomeScreenP
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* Offline banner */}
+      <OfflineBanner />
+
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b">
         <h1 className="text-xl font-semibold">Goaldy</h1>
         <div className="flex items-center gap-1">
+          <SyncIndicator />
           <Button variant="ghost" size="icon" onClick={onViewFeedback}>
             <MessageSquare className="w-5 h-5" />
           </Button>

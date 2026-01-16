@@ -2,6 +2,26 @@ import Database from "@tauri-apps/plugin-sql";
 import type { Budget, Category, Expense, ExpenseWithCategory, FeedbackNote } from "./types";
 import { generateId, getCurrentMonth } from "./types";
 
+// Lazy imports to avoid circular dependencies
+let _getCurrentUserId: (() => Promise<string | null>) | null = null;
+let _queueChange: ((tableName: string, recordId: string, operation: 'insert' | 'update' | 'delete', payload: object) => Promise<void>) | null = null;
+
+async function getCurrentUserId(): Promise<string | null> {
+  if (!_getCurrentUserId) {
+    const auth = await import('./auth');
+    _getCurrentUserId = auth.getCurrentUserId;
+  }
+  return _getCurrentUserId();
+}
+
+async function queueChange(tableName: string, recordId: string, operation: 'insert' | 'update' | 'delete', payload: object): Promise<void> {
+  if (!_queueChange) {
+    const sync = await import('./sync');
+    _queueChange = sync.queueChange;
+  }
+  return _queueChange(tableName, recordId, operation, payload);
+}
+
 let db: Database | null = null;
 
 export async function getDatabase(): Promise<Database> {
@@ -16,7 +36,7 @@ export async function getCurrentBudget(): Promise<Budget | null> {
   const database = await getDatabase();
   const month = getCurrentMonth();
   const result = await database.select<Budget[]>(
-    "SELECT * FROM budgets WHERE month = $1",
+    "SELECT * FROM budgets WHERE month = $1 AND deleted_at IS NULL",
     [month]
   );
   return result[0] || null;
@@ -26,22 +46,52 @@ export async function createOrUpdateBudget(totalAmount: number, spendingLimit?: 
   const database = await getDatabase();
   const month = getCurrentMonth();
   const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
 
   const existing = await getCurrentBudget();
 
   if (existing) {
     await database.execute(
-      "UPDATE budgets SET total_amount = $1, spending_limit = $2, updated_at = $3 WHERE id = $4",
-      [totalAmount, spendingLimit ?? null, now, existing.id]
+      "UPDATE budgets SET total_amount = $1, spending_limit = $2, updated_at = $3, user_id = $4 WHERE id = $5",
+      [totalAmount, spendingLimit ?? null, now, userId, existing.id]
     );
-    return { ...existing, total_amount: totalAmount, spending_limit: spendingLimit ?? null, updated_at: now };
+    const updated: Budget = {
+      ...existing,
+      total_amount: totalAmount,
+      spending_limit: spendingLimit ?? null,
+      updated_at: now,
+      user_id: userId,
+    };
+
+    // Queue for sync
+    if (userId) {
+      await queueChange('budgets', existing.id, 'update', updated);
+    }
+
+    return updated;
   } else {
     const id = generateId();
     await database.execute(
-      "INSERT INTO budgets (id, month, total_amount, spending_limit, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
-      [id, month, totalAmount, spendingLimit ?? null, now, now]
+      "INSERT INTO budgets (id, user_id, month, total_amount, spending_limit, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [id, userId, month, totalAmount, spendingLimit ?? null, now, now]
     );
-    return { id, month, total_amount: totalAmount, spending_limit: spendingLimit ?? null, created_at: now, updated_at: now };
+    const budget: Budget = {
+      id,
+      user_id: userId,
+      month,
+      total_amount: totalAmount,
+      spending_limit: spendingLimit ?? null,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    };
+
+    // Queue for sync
+    if (userId) {
+      await queueChange('budgets', id, 'insert', budget);
+    }
+
+    return budget;
   }
 }
 
@@ -59,14 +109,16 @@ export async function addExpense(amount: number, categoryId?: string, note?: str
   const id = generateId();
   const now = new Date().toISOString();
   const expenseDate = date || now.split('T')[0];
+  const userId = await getCurrentUserId();
 
   await database.execute(
-    "INSERT INTO expenses (id, amount, category_id, note, date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-    [id, amount, categoryId ?? null, note ?? null, expenseDate, now, now]
+    "INSERT INTO expenses (id, user_id, amount, category_id, note, date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    [id, userId, amount, categoryId ?? null, note ?? null, expenseDate, now, now]
   );
 
-  return {
+  const expense: Expense = {
     id,
+    user_id: userId,
     amount,
     category_id: categoryId ?? null,
     note: note ?? null,
@@ -74,12 +126,21 @@ export async function addExpense(amount: number, categoryId?: string, note?: str
     created_at: now,
     updated_at: now,
     synced_at: null,
+    deleted_at: null,
   };
+
+  // Queue for sync
+  if (userId) {
+    await queueChange('expenses', id, 'insert', expense);
+  }
+
+  return expense;
 }
 
 export async function updateExpense(id: string, updates: Partial<Pick<Expense, 'amount' | 'category_id' | 'note' | 'date'>>): Promise<void> {
   const database = await getDatabase();
   const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
 
   const setClauses: string[] = ['updated_at = $1'];
   const params: (string | number | null)[] = [now];
@@ -108,11 +169,35 @@ export async function updateExpense(id: string, updates: Partial<Pick<Expense, '
     `UPDATE expenses SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
     params
   );
+
+  // Queue for sync - fetch the updated expense
+  if (userId) {
+    const result = await database.select<Expense[]>(
+      "SELECT * FROM expenses WHERE id = $1",
+      [id]
+    );
+    if (result[0]) {
+      await queueChange('expenses', id, 'update', result[0]);
+    }
+  }
 }
 
 export async function deleteExpense(id: string): Promise<void> {
   const database = await getDatabase();
-  await database.execute("DELETE FROM expenses WHERE id = $1", [id]);
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  if (userId) {
+    // Soft delete for authenticated users (for sync)
+    await database.execute(
+      "UPDATE expenses SET deleted_at = $1, updated_at = $1 WHERE id = $2",
+      [now, id]
+    );
+    await queueChange('expenses', id, 'delete', { id, deleted_at: now, updated_at: now });
+  } else {
+    // Hard delete for offline-only users
+    await database.execute("DELETE FROM expenses WHERE id = $1", [id]);
+  }
 }
 
 export async function getExpensesForMonth(month?: string): Promise<ExpenseWithCategory[]> {
@@ -123,7 +208,7 @@ export async function getExpensesForMonth(month?: string): Promise<ExpenseWithCa
     `SELECT e.*, c.name as category_name, c.icon as category_icon, c.color as category_color
      FROM expenses e
      LEFT JOIN categories c ON e.category_id = c.id
-     WHERE strftime('%Y-%m', e.date) = $1
+     WHERE strftime('%Y-%m', e.date) = $1 AND e.deleted_at IS NULL
      ORDER BY e.date DESC, e.created_at DESC`,
     [targetMonth]
   );
@@ -134,7 +219,7 @@ export async function getMonthlySpending(month?: string): Promise<number> {
   const targetMonth = month || getCurrentMonth();
 
   const result = await database.select<{ total: number }[]>(
-    `SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE strftime('%Y-%m', date) = $1`,
+    `SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE strftime('%Y-%m', date) = $1 AND deleted_at IS NULL`,
     [targetMonth]
   );
 
@@ -148,6 +233,7 @@ export async function getRecentExpenses(limit: number = 10): Promise<ExpenseWith
     `SELECT e.*, c.name as category_name, c.icon as category_icon, c.color as category_color
      FROM expenses e
      LEFT JOIN categories c ON e.category_id = c.id
+     WHERE e.deleted_at IS NULL
      ORDER BY e.date DESC, e.created_at DESC
      LIMIT $1`,
     [limit]

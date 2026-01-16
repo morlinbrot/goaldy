@@ -240,14 +240,14 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: Data persists across devices.
 
-- [ ] Supabase project setup
-- [ ] Auth: Email/password registration & login
-- [ ] Database schema in Supabase (mirrors local)
-- [ ] Sync logic:
+- [x] Supabase project setup
+- [x] Auth: Email/password registration & login
+- [x] Database schema in Supabase (mirrors local)
+- [x] Sync logic:
   - On app open: Pull remote changes
   - On local write: Queue for sync, push when online
   - Conflict resolution: Timestamp-based (last write wins)
-- [ ] Offline queue with retry
+- [x] Offline queue with retry
 
 **Outcome**: Use on phone and web, data syncs.
 

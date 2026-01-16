@@ -1,35 +1,88 @@
-import { useState, useEffect } from "react";
 import { BudgetSetup } from "@/components/BudgetSetup";
-import { HomeScreen } from "@/components/HomeScreen";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { FeedbackList } from "@/components/FeedbackList";
-import { getCurrentBudget, createOrUpdateBudget } from "@/lib/database";
+import { HomeScreen } from "@/components/HomeScreen";
+import { LoginScreen } from "@/components/auth/LoginScreen";
+import { SignupScreen } from "@/components/auth/SignupScreen";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasCompletedOnboarding } from "@/lib/auth";
+import { createOrUpdateBudget, getCurrentBudget } from "@/lib/database";
 import type { Budget } from "@/lib/types";
+import { useCallback, useEffect, useState } from "react";
 
-type View = "home" | "setup" | "feedback";
+type View = "loading" | "login" | "signup" | "home" | "setup" | "feedback";
 
 function App() {
-  const [budget, setBudget] = useState<Budget | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [view, setView] = useState<View>("home");
+  const {
+    isAuthenticated,
+    isLoading: authLoading,
+    error: authError,
+    login,
+    signup,
+    clearError,
+    skipAuth,
+    isConfigured,
+    hasSkippedAuth,
+  } = useAuth();
 
+  const [budget, setBudget] = useState<Budget | null>(null);
+  const [isLoadingBudget, setIsLoadingBudget] = useState(false);
+  const [view, setView] = useState<View>("loading");
+
+  // Load budget when authenticated or skipped auth
+  const loadBudget = useCallback(async () => {
+    setIsLoadingBudget(true);
+    try {
+      const currentBudget = await getCurrentBudget();
+      setBudget(currentBudget);
+      setView(currentBudget ? "home" : "setup");
+    } catch (error) {
+      console.error('Failed to load budget:', error);
+      setView("setup");
+    } finally {
+      setIsLoadingBudget(false);
+    }
+  }, []);
+
+  // Determine initial view based on auth state
   useEffect(() => {
-    async function loadBudget() {
-      try {
-        const currentBudget = await getCurrentBudget();
-        setBudget(currentBudget);
-        if (!currentBudget) {
-          setView("setup");
-        }
-      } catch (error) {
-        console.error('Failed to load budget:', error);
-        setView("setup");
-      } finally {
-        setIsLoading(false);
+    async function determineView() {
+      console.log('[App] determineView called', { authLoading, isAuthenticated, hasSkippedAuth, isConfigured });
+
+      if (authLoading) {
+        console.log('[App] Auth is loading, staying on loading view');
+        setView("loading");
+        return;
+      }
+
+      // If authenticated or skipped auth, load budget
+      if (isAuthenticated || hasSkippedAuth) {
+        console.log('[App] Authenticated or skipped, loading budget');
+        await loadBudget();
+        return;
+      }
+
+      // If Supabase is not configured, skip auth automatically
+      if (!isConfigured) {
+        console.log('[App] Supabase not configured, skipping auth');
+        skipAuth();
+        return;
+      }
+
+      // Check if user has used the app before
+      console.log('[App] Checking onboarding status');
+      const hasOnboarded = await hasCompletedOnboarding();
+      console.log('[App] hasOnboarded:', hasOnboarded);
+      if (hasOnboarded) {
+        // Returning user with local data - show login option
+        setView("login");
+      } else {
+        // New user - show login option
+        setView("login");
       }
     }
-    loadBudget();
-  }, []);
+    determineView();
+  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, skipAuth, loadBudget]);
 
   const handleSaveBudget = async (totalAmount: number, spendingLimit?: number) => {
     try {
@@ -41,7 +94,23 @@ function App() {
     }
   };
 
-  if (isLoading) {
+  const handleLogin = async (email: string, password: string) => {
+    await login(email, password);
+    // After successful login, loadBudget will be triggered by the useEffect
+  };
+
+  const handleSignup = async (email: string, password: string) => {
+    await signup(email, password);
+    // After successful signup, loadBudget will be triggered by the useEffect
+  };
+
+  const handleSkipAuth = () => {
+    clearError();
+    skipAuth();
+  };
+
+  // Show loading screen while checking auth or loading budget
+  if (view === "loading" || (authLoading || isLoadingBudget)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
@@ -52,6 +121,25 @@ function App() {
   // Render based on current view
   const renderView = () => {
     switch (view) {
+      case "login":
+        return (
+          <LoginScreen
+            onLogin={handleLogin}
+            onSignupClick={() => { clearError(); setView("signup"); }}
+            onSkip={handleSkipAuth}
+            error={authError}
+            isLoading={authLoading}
+          />
+        );
+      case "signup":
+        return (
+          <SignupScreen
+            onSignup={handleSignup}
+            onLoginClick={() => { clearError(); setView("login"); }}
+            error={authError}
+            isLoading={authLoading}
+          />
+        );
       case "setup":
         return (
           <BudgetSetup
@@ -80,8 +168,8 @@ function App() {
   return (
     <>
       {renderView()}
-      {/* Show feedback button on all views except feedback list */}
-      {view !== "feedback" && <FeedbackButton />}
+      {/* Show feedback button on home and setup views */}
+      {(view === "home" || view === "setup") && <FeedbackButton />}
     </>
   );
 }

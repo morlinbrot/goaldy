@@ -13,15 +13,18 @@ export interface Category {
 
 export interface Budget {
   id: string;
+  user_id: string | null;
   month: string; // "2026-01"
   total_amount: number;
   spending_limit: number | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface Expense {
   id: string;
+  user_id: string | null;
   amount: number;
   category_id: string | null;
   note: string | null;
@@ -29,6 +32,7 @@ export interface Expense {
   created_at: string;
   updated_at: string;
   synced_at: string | null;
+  deleted_at: string | null;
 }
 
 export interface ExpenseWithCategory extends Expense {
@@ -93,4 +97,67 @@ export function getCurrentDate(): string {
 
 export function formatCurrency(amount: number, currency: string = '€'): string {
   return `${currency}${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Auth types
+export interface User {
+  id: string;
+  email: string;
+  displayName?: string;
+}
+
+export interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+}
+
+export interface AuthSession {
+  userId: string;
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+}
+
+export interface LocalAuthState {
+  id: number;
+  user_id: string | null;
+  email: string | null;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  last_sync_at: string | null;
+}
+
+// Sync types
+export type SyncOperation = 'insert' | 'update' | 'delete';
+
+export interface SyncQueueItem {
+  id: string;
+  table_name: string;
+  record_id: string;
+  operation: SyncOperation;
+  payload: string;
+  user_id: string | null;
+  created_at: string;
+  attempts: number;
+  last_attempt_at: string | null;
+  error_message: string | null;
+}
+
+export interface SyncStatus {
+  isOnline: boolean;
+  isSyncing: boolean;
+  lastSyncAt: string | null;
+  pendingChanges: number;
+  error: string | null;
+}
+
+export interface SyncResult {
+  success: boolean;
+  pushed: number;
+  pulled: number;
+  errors: string[];
 }

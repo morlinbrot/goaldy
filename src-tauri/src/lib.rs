@@ -117,6 +117,39 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "add user_id and sync fields for cloud sync",
+            sql: r#"
+                -- Add user_id to expenses (nullable for offline-first)
+                ALTER TABLE expenses ADD COLUMN user_id TEXT;
+
+                -- Add user_id to budgets
+                ALTER TABLE budgets ADD COLUMN user_id TEXT;
+
+                -- Add deleted_at for soft deletes (sync-friendly)
+                ALTER TABLE expenses ADD COLUMN deleted_at TEXT;
+                ALTER TABLE budgets ADD COLUMN deleted_at TEXT;
+
+                -- Create auth_state table for local session storage
+                CREATE TABLE IF NOT EXISTS auth_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    user_id TEXT,
+                    email TEXT,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    expires_at TEXT,
+                    last_sync_at TEXT
+                );
+
+                -- Update sync_queue to include user context and retry tracking
+                ALTER TABLE sync_queue ADD COLUMN user_id TEXT;
+                ALTER TABLE sync_queue ADD COLUMN attempts INTEGER DEFAULT 0;
+                ALTER TABLE sync_queue ADD COLUMN last_attempt_at TEXT;
+                ALTER TABLE sync_queue ADD COLUMN error_message TEXT;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
