@@ -225,12 +225,12 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: Capture improvement ideas and feedback while using the app.
 
-- [ ] SQLite table: `feedback_notes` (id, content, created_at)
-- [ ] Floating feedback icon visible on all screens (small, unobtrusive)
-- [ ] Tap icon → quick text input modal
-- [ ] Save note with single tap (no extra confirmation)
-- [ ] Feedback notes list accessible from settings/menu
-- [ ] View and delete saved notes
+- [x] SQLite table: `feedback_notes` (id, content, created_at)
+- [x] Floating feedback icon visible on all screens (small, unobtrusive)
+- [x] Tap icon → quick text input modal
+- [x] Save note with single tap (no extra confirmation)
+- [x] Feedback notes list accessible from settings/menu
+- [x] View and delete saved notes
 
 **Outcome**: You can quickly jot down ideas for app improvements without leaving context.
 

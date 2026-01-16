@@ -6,14 +6,15 @@ import { Numpad } from "./Numpad";
 import { CategorySelector } from "./CategorySelector";
 import { ExpenseList } from "./ExpenseList";
 import { Button } from "@/components/ui/button";
-import { Settings, ChevronDown, ChevronUp } from "lucide-react";
+import { Settings, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 
 interface HomeScreenProps {
   budget: Budget;
   onEditBudget: () => void;
+  onViewFeedback: () => void;
 }
 
-export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
+export function HomeScreen({ budget, onEditBudget, onViewFeedback }: HomeScreenProps) {
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -90,9 +91,14 @@ export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b">
         <h1 className="text-xl font-semibold">Goaldy</h1>
-        <Button variant="ghost" size="icon" onClick={onEditBudget}>
-          <Settings className="w-5 h-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onViewFeedback}>
+            <MessageSquare className="w-5 h-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onEditBudget}>
+            <Settings className="w-5 h-5" />
+          </Button>
+        </div>
       </header>
 
       {/* Main content */}

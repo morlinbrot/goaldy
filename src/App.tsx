@@ -1,23 +1,29 @@
 import { useState, useEffect } from "react";
 import { BudgetSetup } from "@/components/BudgetSetup";
 import { HomeScreen } from "@/components/HomeScreen";
+import { FeedbackButton } from "@/components/FeedbackButton";
+import { FeedbackList } from "@/components/FeedbackList";
 import { getCurrentBudget, createOrUpdateBudget } from "@/lib/database";
 import type { Budget } from "@/lib/types";
+
+type View = "home" | "setup" | "feedback";
 
 function App() {
   const [budget, setBudget] = useState<Budget | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showSetup, setShowSetup] = useState(false);
+  const [view, setView] = useState<View>("home");
 
   useEffect(() => {
     async function loadBudget() {
       try {
         const currentBudget = await getCurrentBudget();
         setBudget(currentBudget);
-        setShowSetup(!currentBudget);
+        if (!currentBudget) {
+          setView("setup");
+        }
       } catch (error) {
         console.error('Failed to load budget:', error);
-        setShowSetup(true);
+        setView("setup");
       } finally {
         setIsLoading(false);
       }
@@ -29,7 +35,7 @@ function App() {
     try {
       const newBudget = await createOrUpdateBudget(totalAmount, spendingLimit);
       setBudget(newBudget);
-      setShowSetup(false);
+      setView("home");
     } catch (error) {
       console.error('Failed to save budget:', error);
     }
@@ -43,20 +49,40 @@ function App() {
     );
   }
 
-  if (showSetup || !budget) {
-    return (
-      <BudgetSetup
-        onSave={handleSaveBudget}
-        initialAmount={budget?.total_amount}
-      />
-    );
-  }
+  // Render based on current view
+  const renderView = () => {
+    switch (view) {
+      case "setup":
+        return (
+          <BudgetSetup
+            onSave={handleSaveBudget}
+            initialAmount={budget?.total_amount}
+          />
+        );
+      case "feedback":
+        return <FeedbackList onBack={() => setView("home")} />;
+      case "home":
+      default:
+        if (!budget) {
+          setView("setup");
+          return null;
+        }
+        return (
+          <HomeScreen
+            budget={budget}
+            onEditBudget={() => setView("setup")}
+            onViewFeedback={() => setView("feedback")}
+          />
+        );
+    }
+  };
 
   return (
-    <HomeScreen
-      budget={budget}
-      onEditBudget={() => setShowSetup(true)}
-    />
+    <>
+      {renderView()}
+      {/* Show feedback button on all views except feedback list */}
+      {view !== "feedback" && <FeedbackButton />}
+    </>
   );
 }
 

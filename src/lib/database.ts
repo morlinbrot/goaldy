@@ -1,5 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
-import type { Budget, Category, Expense, ExpenseWithCategory } from "./types";
+import type { Budget, Category, Expense, ExpenseWithCategory, FeedbackNote } from "./types";
 import { generateId, getCurrentMonth } from "./types";
 
 let db: Database | null = null;
@@ -152,4 +152,30 @@ export async function getRecentExpenses(limit: number = 10): Promise<ExpenseWith
      LIMIT $1`,
     [limit]
   );
+}
+
+// Feedback notes operations
+export async function addFeedbackNote(content: string): Promise<FeedbackNote> {
+  const database = await getDatabase();
+  const id = generateId();
+  const now = new Date().toISOString();
+
+  await database.execute(
+    "INSERT INTO feedback_notes (id, content, created_at) VALUES ($1, $2, $3)",
+    [id, content, now]
+  );
+
+  return { id, content, created_at: now };
+}
+
+export async function getFeedbackNotes(): Promise<FeedbackNote[]> {
+  const database = await getDatabase();
+  return database.select<FeedbackNote[]>(
+    "SELECT * FROM feedback_notes ORDER BY created_at DESC"
+  );
+}
+
+export async function deleteFeedbackNote(id: string): Promise<void> {
+  const database = await getDatabase();
+  await database.execute("DELETE FROM feedback_notes WHERE id = $1", [id]);
 }

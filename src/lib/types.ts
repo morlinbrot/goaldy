@@ -71,6 +71,12 @@ export interface HabitGoal {
   updated_at: string;
 }
 
+export interface FeedbackNote {
+  id: string;
+  content: string;
+  created_at: string;
+}
+
 // Utility functions
 export function generateId(): string {
   return crypto.randomUUID();
