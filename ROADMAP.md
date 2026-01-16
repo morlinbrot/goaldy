@@ -195,11 +195,11 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: App runs on your phone, even if it does nothing useful yet.
 
-- [ ] Tauri v2 project setup with React + TypeScript
-- [ ] Tailwind v3 + shadcn/ui configuration
-- [ ] Basic "Hello World" home screen
-- [ ] Build and deploy to phone (Android/iOS)
-- [ ] Set up development workflow
+- [x] Tauri v2 project setup with React + TypeScript
+- [x] Tailwind v3 + shadcn/ui configuration
+- [x] Basic "Hello World" home screen
+- [x] Build and deploy to phone (Android/iOS)
+- [x] Set up development workflow
 
 **Outcome**: You can open "Goaldy" on your phone.
 
@@ -209,15 +209,30 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: Track expenses and see remaining budget. Fully functional offline.
 
-- [ ] SQLite schema: `budgets`, `expenses`, `categories`
-- [ ] Budget setup: Simple mode (single number)
-- [ ] Home screen: Remaining balance display
-- [ ] Quick expense entry: Numpad → amount → save
-- [ ] Pre-defined categories (tap to select, optional)
-- [ ] Recent expenses list
-- [ ] Edit/delete expenses
+- [x] SQLite schema: `budgets`, `expenses`, `categories`
+- [x] Budget setup: Simple mode (single number)
+- [x] Home screen: Remaining balance display
+- [x] Quick expense entry: Numpad → amount → save
+- [x] Pre-defined categories (tap to select, optional)
+- [x] Recent expenses list
+- [x] Edit/delete expenses
 
 **Outcome**: You use this daily to track spending. No account needed.
+
+---
+
+### Phase 1.1: In-App Feedback Notes
+
+**Goal**: Capture improvement ideas and feedback while using the app.
+
+- [ ] SQLite table: `feedback_notes` (id, content, created_at)
+- [ ] Floating feedback icon visible on all screens (small, unobtrusive)
+- [ ] Tap icon → quick text input modal
+- [ ] Save note with single tap (no extra confirmation)
+- [ ] Feedback notes list accessible from settings/menu
+- [ ] View and delete saved notes
+
+**Outcome**: You can quickly jot down ideas for app improvements without leaving context.
 
 ---
 
