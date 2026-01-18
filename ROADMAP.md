@@ -257,9 +257,9 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: Create and track savings goals.
 
-- [ ] Goal creation flow (manual): Name, amount, date, monthly contribution, "why"
-- [ ] Goal dashboard: Progress bar, stats, "why" display
-- [ ] Multiple goals with list view
+- [x] Goal creation flow (manual): Name, amount, date, monthly contribution, "why"
+- [x] Goal dashboard: Progress bar, stats, "why" display
+- [x] Multiple goals with list view
 - [ ] Allocation view (distribute monthly savings across goals)
 - [ ] Monthly check-in flow (triggered on 3rd):
   - Prompt with options

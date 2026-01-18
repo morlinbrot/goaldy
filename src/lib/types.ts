@@ -43,6 +43,7 @@ export interface ExpenseWithCategory extends Expense {
 
 export interface SavingsGoal {
   id: string;
+  user_id: string | null;
   name: string;
   target_amount: number;
   target_date: string;
@@ -51,15 +52,29 @@ export interface SavingsGoal {
   privacy_level: 'private' | 'progress_only' | 'full';
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface SavingsContribution {
   id: string;
+  user_id: string | null;
   goal_id: string;
   month: string;
   amount: number;
   is_full_amount: number | null;
   created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+// Extended type with calculated stats for the UI
+export interface SavingsGoalWithStats extends SavingsGoal {
+  total_saved: number;
+  percentage_complete: number;
+  months_remaining: number;
+  is_on_track: boolean;
+  projected_completion_date: string | null;
+  current_streak: number;
 }
 
 export interface HabitGoal {
@@ -95,8 +110,9 @@ export function getCurrentDate(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-export function formatCurrency(amount: number, currency: string = '€'): string {
-  return `${currency}${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export function formatCurrency(amount: number, currency: string = '€', decimals: boolean = true): string {
+  const fractionDigits = decimals ? 2 : 0;
+  return `${currency}${amount.toLocaleString('de-DE', { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })}`;
 }
 
 // Auth types

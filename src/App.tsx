@@ -1,16 +1,35 @@
+import { LoginScreen } from "@/components/auth/LoginScreen";
+import { SignupScreen } from "@/components/auth/SignupScreen";
 import { BudgetSetup } from "@/components/BudgetSetup";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { FeedbackList } from "@/components/FeedbackList";
+import {
+    AllocationView,
+    GoalCreationForm,
+    GoalDashboard,
+    GoalsList,
+    MonthlyCheckIn,
+} from "@/components/goals";
 import { HomeScreen } from "@/components/HomeScreen";
-import { LoginScreen } from "@/components/auth/LoginScreen";
-import { SignupScreen } from "@/components/auth/SignupScreen";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSync } from "@/contexts/SyncContext";
 import { hasCompletedOnboarding } from "@/lib/auth";
-import { createOrUpdateBudget, getCurrentBudget } from "@/lib/database";
-import type { Budget } from "@/lib/types";
+import { createOrUpdateBudget, getCurrentBudget, getSavingsGoalWithStats } from "@/lib/database";
+import type { Budget, SavingsGoalWithStats } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
 
-type View = "loading" | "login" | "signup" | "home" | "setup" | "feedback";
+type View =
+  | "loading"
+  | "login"
+  | "signup"
+  | "home"
+  | "setup"
+  | "feedback"
+  | "goals"
+  | "goal-create"
+  | "goal-detail"
+  | "goal-checkin"
+  | "goal-allocation";
 
 function App() {
   const {
@@ -24,10 +43,13 @@ function App() {
     isConfigured,
     hasSkippedAuth,
   } = useAuth();
+  const { refreshStatus } = useSync();
 
   const [budget, setBudget] = useState<Budget | null>(null);
   const [isLoadingBudget, setIsLoadingBudget] = useState(false);
   const [view, setView] = useState<View>("loading");
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [selectedGoal, setSelectedGoal] = useState<SavingsGoalWithStats | null>(null);
 
   // Load budget when authenticated or skipped auth
   const loadBudget = useCallback(async () => {
@@ -47,17 +69,13 @@ function App() {
   // Determine initial view based on auth state
   useEffect(() => {
     async function determineView() {
-      console.log('[App] determineView called', { authLoading, isAuthenticated, hasSkippedAuth, isConfigured });
-
       if (authLoading) {
-        console.log('[App] Auth is loading, staying on loading view');
         setView("loading");
         return;
       }
 
       // If authenticated or skipped auth, load budget
       if (isAuthenticated || hasSkippedAuth) {
-        console.log('[App] Authenticated or skipped, loading budget');
         await loadBudget();
         return;
       }
@@ -83,6 +101,12 @@ function App() {
     }
     determineView();
   }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, skipAuth, loadBudget]);
+
+  // Load goal data - must be defined before early return
+  const loadGoalData = useCallback(async (goalId: string) => {
+    const goalData = await getSavingsGoalWithStats(goalId);
+    setSelectedGoal(goalData);
+  }, []);
 
   const handleSaveBudget = async (totalAmount: number, spendingLimit?: number) => {
     try {
@@ -118,6 +142,52 @@ function App() {
     );
   }
 
+  // Goal navigation handlers
+  const handleGoalCreated = async () => {
+    await refreshStatus();
+    setView("goals");
+  };
+
+  const handleSelectGoal = async (goalId: string) => {
+    setSelectedGoalId(goalId);
+    await loadGoalData(goalId);
+    setView("goal-detail");
+  };
+
+  const handleGoalCheckIn = (goalId: string) => {
+    setSelectedGoalId(goalId);
+    setView("goal-checkin");
+  };
+
+  const handleGoalDeleted = async () => {
+    await refreshStatus();
+    setSelectedGoalId(null);
+    setSelectedGoal(null);
+    setView("goals");
+  };
+
+  const handleGoalUpdated = async () => {
+    if (selectedGoalId) {
+      await loadGoalData(selectedGoalId);
+    }
+    await refreshStatus();
+  };
+
+  const handleCheckInComplete = async () => {
+    await refreshStatus();
+    if (selectedGoalId) {
+      await loadGoalData(selectedGoalId);
+      setView("goal-detail");
+    } else {
+      setView("goals");
+    }
+  };
+
+  const handleAllocationSaved = async () => {
+    await refreshStatus();
+    setView("goals");
+  };
+
   // Render based on current view
   const renderView = () => {
     switch (view) {
@@ -149,6 +219,55 @@ function App() {
         );
       case "feedback":
         return <FeedbackList onBack={() => setView("home")} />;
+      case "goals":
+        return (
+          <GoalsList
+            onBack={() => setView("home")}
+            onCreateGoal={() => setView("goal-create")}
+            onSelectGoal={handleSelectGoal}
+            onAllocation={() => setView("goal-allocation")}
+          />
+        );
+      case "goal-create":
+        return (
+          <GoalCreationForm
+            onGoalCreated={handleGoalCreated}
+            onBack={() => setView("goals")}
+          />
+        );
+      case "goal-detail":
+        if (!selectedGoalId || !selectedGoal) {
+          setView("goals");
+          return null;
+        }
+        return (
+          <GoalDashboard
+            goal={selectedGoal}
+            onBack={() => setView("goals")}
+            onCheckIn={handleGoalCheckIn}
+            onDeleted={handleGoalDeleted}
+            onUpdated={handleGoalUpdated}
+          />
+        );
+      case "goal-checkin":
+        if (!selectedGoalId) {
+          setView("goals");
+          return null;
+        }
+        return (
+          <MonthlyCheckIn
+            goalId={selectedGoalId}
+            onComplete={handleCheckInComplete}
+            onBack={() => setView("goal-detail")}
+          />
+        );
+      case "goal-allocation":
+        return (
+          <AllocationView
+            onBack={() => setView("goals")}
+            onSaved={handleAllocationSaved}
+          />
+        );
       case "home":
       default:
         if (!budget) {
@@ -160,6 +279,7 @@ function App() {
             budget={budget}
             onEditBudget={() => setView("setup")}
             onViewFeedback={() => setView("feedback")}
+            onViewGoals={() => setView("goals")}
           />
         );
     }

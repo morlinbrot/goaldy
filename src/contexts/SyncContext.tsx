@@ -101,15 +101,20 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       // Update status after sync
       const newStatus = await getSyncStatus();
+      const error = result.errors.length > 0 ? result.errors[0] : null
+      if (error) {
+        console.error("[Sync Error]", error);
+      }
       setStatus({
         ...newStatus,
         isSyncing: false,
-        error: result.errors.length > 0 ? result.errors[0] : null,
+        error,
       });
 
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Sync failed';
+      console.error("[Sync Error]", errorMessage);
       setStatus(prev => ({
         ...prev,
         isSyncing: false,

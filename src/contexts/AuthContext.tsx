@@ -27,15 +27,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [hasSkippedAuth, setHasSkippedAuth] = useState(false);
 
   const isConfigured = isSupabaseConfigured();
-  console.log('[AuthContext] isConfigured:', isConfigured);
 
   // Initialize auth on mount
   useEffect(() => {
     async function init() {
-      console.log('[AuthContext] init() starting');
       try {
         const authState = await initAuth();
-        console.log('[AuthContext] initAuth returned:', authState);
         setUser(authState.user);
         setIsAuthenticated(authState.isAuthenticated);
         setError(authState.error);
@@ -43,7 +40,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.error('[AuthContext] Auth initialization failed:', err);
         setError('Failed to initialize authentication');
       } finally {
-        console.log('[AuthContext] init() complete, setting isLoading=false');
         setIsLoading(false);
       }
     }

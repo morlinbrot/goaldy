@@ -150,6 +150,27 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add user_id and sync fields to savings tables",
+            sql: r#"
+                -- Add user_id to savings_goals (nullable for offline-first)
+                ALTER TABLE savings_goals ADD COLUMN user_id TEXT;
+
+                -- Add deleted_at for soft deletes (sync-friendly)
+                ALTER TABLE savings_goals ADD COLUMN deleted_at TEXT;
+
+                -- Add user_id to savings_contributions
+                ALTER TABLE savings_contributions ADD COLUMN user_id TEXT;
+
+                -- Add deleted_at to savings_contributions
+                ALTER TABLE savings_contributions ADD COLUMN deleted_at TEXT;
+
+                -- Add updated_at to savings_contributions for sync
+                ALTER TABLE savings_contributions ADD COLUMN updated_at TEXT;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

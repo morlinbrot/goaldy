@@ -1,11 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
-import { AlertCircle, Check, CloudOff, CloudUpload, RefreshCw } from 'lucide-react';
+import { clearSyncQueue } from '@/lib/sync';
+import { AlertCircle, Check, CloudOff, CloudUpload, RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
 export function SyncIndicator() {
-  const { status, isSyncing, sync, isOnline } = useSync();
+  const { status, isSyncing, sync, isOnline, refreshStatus } = useSync();
   const { isAuthenticated, isConfigured } = useAuth();
+  const [isResetting, setIsResetting] = useState(false);
 
   // Don't show if not authenticated or Supabase not configured
   if (!isAuthenticated || !isConfigured) {
@@ -15,6 +18,18 @@ export function SyncIndicator() {
   const handleSync = async () => {
     if (!isSyncing) {
       await sync();
+    }
+  };
+
+  const handleResetQueue = async () => {
+    setIsResetting(true);
+    try {
+      await clearSyncQueue(); // Clear all items from the queue
+      await refreshStatus();
+    } catch (error) {
+      console.error('Failed to reset sync queue:', error);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -64,16 +79,34 @@ export function SyncIndicator() {
   const { icon, color, title } = getStatusDisplay();
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={`h-8 w-8 ${color}`}
-      onClick={handleSync}
-      disabled={isSyncing || !isOnline}
-      title={title}
-    >
-      {icon}
-    </Button>
+    <div className="flex items-center gap-1">
+      {status.error && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          onClick={handleResetQueue}
+          disabled={isResetting || isSyncing}
+          title="Reset sync queue and retry"
+        >
+          {isResetting ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={`h-8 w-8 ${color}`}
+        onClick={handleSync}
+        disabled={isSyncing || !isOnline}
+        title={title}
+      >
+        {icon}
+      </Button>
+    </div>
   );
 }
 
