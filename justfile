@@ -1,5 +1,8 @@
+dev:
+    npm run tauri dev
+
 build:
-    npm run tauri build -- -d
+    npm run tauri android build -- -d
 
 # Use `-r` flag to reinstall keeping app data
 install *args:
