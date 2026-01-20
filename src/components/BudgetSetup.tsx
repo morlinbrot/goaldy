@@ -1,18 +1,19 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { useState } from "react";
 
 interface BudgetSetupProps {
-  onSave: (totalAmount: number, spendingLimit?: number) => void;
+  onSave: (totalAmount: number, spendingLimit?: number) => Promise<void>;
   initialAmount?: number;
 }
 
 export function BudgetSetup({ onSave, initialAmount }: BudgetSetupProps) {
   const [amount, setAmount] = useState(initialAmount?.toString() || '');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = parseFloat(amount);
 
@@ -22,7 +23,15 @@ export function BudgetSetup({ onSave, initialAmount }: BudgetSetupProps) {
     }
 
     setError('');
-    onSave(value);
+    setIsSubmitting(true);
+    try {
+      await onSave(value);
+    } catch (err) {
+      setError('Failed to save budget. Please try again.');
+      console.error('Budget save error:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -57,8 +66,8 @@ export function BudgetSetup({ onSave, initialAmount }: BudgetSetupProps) {
                 <p className="text-sm text-destructive text-center">{error}</p>
               )}
             </div>
-            <Button type="submit" className="w-full h-12 text-lg">
-              Set My Budget
+            <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Set My Budget'}
             </Button>
           </form>
         </CardContent>

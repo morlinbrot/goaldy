@@ -5,12 +5,14 @@ import { dailyAt, everyNDays, monthlyOnDay, parseCron, weeklyOnMonday } from "@/
 import { rescheduleAllNotifications, sendTestNotification } from "@/lib/notification-scheduler";
 import {
     checkNotificationPermission,
+    DEFAULT_PREFERENCES,
     getNotificationPreferences,
+    type NotificationPreferences,
+    type PermissionStatus,
     requestNotificationPermission,
-    saveNotificationPreferences,
-    type NotificationPreferences
+    saveNotificationPreferences
 } from "@/lib/notifications";
-import { ArrowLeft, Bell, BellOff, Calendar, Clock, MessageCircle, TestTube } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bell, BellOff, Calendar, Clock, MessageCircle, TestTube } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 interface NotificationSettingsProps {
@@ -43,25 +45,50 @@ function buildMonthlyCron(day: number, time: string): string {
 }
 
 export function NotificationSettings({ onBack }: NotificationSettingsProps) {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | 'loading'>('loading');
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [testSent, setTestSent] = useState(false);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   // Load initial state
   useEffect(() => {
     async function load() {
-      const permission = await checkNotificationPermission();
-      setHasPermission(permission);
-      const preferences = await getNotificationPreferences();
-      setPrefs(preferences);
+      // Check permission status
+      const status = await checkNotificationPermission();
+      setPermissionStatus(status);
+
+      // Load preferences
+      try {
+        const preferences = await getNotificationPreferences();
+        setPrefs(preferences);
+      } catch (err) {
+        console.error('Failed to load notification preferences:', err);
+        // Set default preferences so UI can render
+        const now = new Date().toISOString();
+        setPrefs({
+          id: 1,
+          user_id: null,
+          ...DEFAULT_PREFERENCES,
+          created_at: now,
+          updated_at: now,
+        });
+      }
     }
     load();
   }, []);
 
   const handleRequestPermission = async () => {
-    const granted = await requestNotificationPermission();
-    setHasPermission(granted);
+    setIsRequestingPermission(true);
+    try {
+      // Request permission
+      await requestNotificationPermission();
+      // Re-check the actual status after the system dialog closes
+      const actualStatus = await checkNotificationPermission();
+      setPermissionStatus(actualStatus);
+    } finally {
+      setIsRequestingPermission(false);
+    }
   };
 
   const handleSendTest = async () => {
@@ -142,13 +169,17 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
     await handleSave({ why_reminders_cron: newCron });
   }, [prefs, whyParsed, handleSave]);
 
-  if (prefs === null || hasPermission === null) {
+  // Show loading only while initially loading
+  if (permissionStatus === 'loading' || prefs === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     );
   }
+
+  // Notifications are disabled if permission is not granted or unavailable
+  const notificationsDisabled = permissionStatus !== 'granted';
 
   // Get current frequency for progress (or 'never' if disabled)
   // Map 'monthly' to 'weekly' since progress updates don't support monthly
@@ -172,8 +203,25 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
       </header>
 
       <div className="flex-1 overflow-auto p-4 space-y-4">
-        {/* Permission Card */}
-        {!hasPermission && (
+        {/* Unavailable Warning */}
+        {permissionStatus === 'unavailable' && (
+          <Card className="border-red-500/50 bg-red-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-red-700 dark:text-red-400">Notifications Unavailable</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    The notification system is not available on this device. This may be due to missing permissions or platform limitations.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Permission Request Card */}
+        {permissionStatus === 'denied' && (
           <Card className="border-yellow-500/50 bg-yellow-500/5">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -184,8 +232,12 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                     Enable notifications to receive reminders
                   </p>
                 </div>
-                <Button onClick={handleRequestPermission} size="sm">
-                  Enable
+                <Button
+                  onClick={handleRequestPermission}
+                  size="sm"
+                  disabled={isRequestingPermission}
+                >
+                  {isRequestingPermission ? 'Enabling...' : 'Enable'}
                 </Button>
               </div>
             </CardContent>
@@ -193,7 +245,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
         )}
 
         {/* Master Toggle */}
-        <Card>
+        <Card className={notificationsDisabled ? 'opacity-50' : ''}>
           <CardContent className="p-4">
             <ToggleRow
               icon={<Bell className="w-5 h-5" />}
@@ -201,13 +253,13 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
               description="Master toggle for all notifications"
               checked={prefs.notifications_enabled}
               onChange={(v) => handleToggle('notifications_enabled', v)}
-              disabled={!hasPermission || isSaving}
+              disabled={notificationsDisabled || isSaving}
             />
           </CardContent>
         </Card>
 
         {/* Monthly Check-in */}
-        <Card className={!prefs.notifications_enabled ? 'opacity-50' : ''}>
+        <Card className={notificationsDisabled || !prefs.notifications_enabled ? 'opacity-50' : ''}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Calendar className="w-4 h-4" />
@@ -222,7 +274,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
               label="Enable"
               checked={prefs.monthly_checkin_enabled}
               onChange={(v) => handleToggle('monthly_checkin_enabled', v)}
-              disabled={!prefs.notifications_enabled || isSaving}
+              disabled={notificationsDisabled || !prefs.notifications_enabled || isSaving}
             />
             <div className="flex items-center gap-4">
               <div className="flex-1">
@@ -233,7 +285,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   max={28}
                   value={monthlyParsed?.dayOfMonth || 2}
                   onChange={(e) => handleMonthlyDayChange(parseInt(e.target.value) || 2)}
-                  disabled={!prefs.notifications_enabled || !prefs.monthly_checkin_enabled || isSaving}
+                  disabled={notificationsDisabled || !prefs.notifications_enabled || !prefs.monthly_checkin_enabled || isSaving}
                   className="mt-1"
                 />
               </div>
@@ -243,7 +295,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   type="time"
                   defaultValue={monthlyParsed?.time || '09:00'}
                   onBlur={(e) => handleMonthlyTimeChange(e.target.value)}
-                  disabled={!prefs.notifications_enabled || !prefs.monthly_checkin_enabled || isSaving}
+                  disabled={notificationsDisabled || !prefs.notifications_enabled || !prefs.monthly_checkin_enabled || isSaving}
                   className="mt-1"
                 />
               </div>
@@ -252,7 +304,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
         </Card>
 
         {/* Progress Updates */}
-        <Card className={!prefs.notifications_enabled ? 'opacity-50' : ''}>
+        <Card className={notificationsDisabled || !prefs.notifications_enabled ? 'opacity-50' : ''}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Clock className="w-4 h-4" />
@@ -273,7 +325,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   { value: 'weekly', label: 'Weekly' },
                   { value: 'never', label: 'Never' },
                 ]}
-                disabled={!prefs.notifications_enabled || isSaving}
+                disabled={notificationsDisabled || !prefs.notifications_enabled || isSaving}
               />
             </div>
             {progressFrequency !== 'never' && (
@@ -283,7 +335,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   type="time"
                   defaultValue={progressParsed?.time || '10:00'}
                   onBlur={(e) => handleProgressTimeChange(e.target.value)}
-                  disabled={!prefs.notifications_enabled || isSaving}
+                  disabled={notificationsDisabled || !prefs.notifications_enabled || isSaving}
                   className="mt-1"
                 />
               </div>
@@ -292,7 +344,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
         </Card>
 
         {/* Why Reminders */}
-        <Card className={!prefs.notifications_enabled ? 'opacity-50' : ''}>
+        <Card className={notificationsDisabled || !prefs.notifications_enabled ? 'opacity-50' : ''}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <MessageCircle className="w-4 h-4" />
@@ -314,7 +366,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   { value: 'weekly', label: 'Weekly' },
                   { value: 'never', label: 'Never' },
                 ]}
-                disabled={!prefs.notifications_enabled || isSaving}
+                disabled={notificationsDisabled || !prefs.notifications_enabled || isSaving}
               />
             </div>
             {whyFrequency !== 'never' && (
@@ -324,7 +376,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
                   type="time"
                   defaultValue={whyParsed?.time || '19:00'}
                   onBlur={(e) => handleWhyTimeChange(e.target.value)}
-                  disabled={!prefs.notifications_enabled || isSaving}
+                  disabled={notificationsDisabled || !prefs.notifications_enabled || isSaving}
                   className="mt-1"
                 />
               </div>
@@ -333,7 +385,7 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
         </Card>
 
         {/* Test Notification */}
-        {hasPermission && prefs.notifications_enabled && (
+        {!notificationsDisabled && prefs.notifications_enabled && (
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">

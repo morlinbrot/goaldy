@@ -112,28 +112,33 @@ async function queueChange(tableName: string, recordId: string, operation: 'inse
   return _queueChange(tableName, recordId, operation, payload);
 }
 
+export type PermissionStatus = 'granted' | 'denied' | 'unavailable';
+
 /**
  * Check if notifications are supported and permission is granted.
+ * Returns 'unavailable' if the notification system cannot be accessed.
  */
-export async function checkNotificationPermission(): Promise<boolean> {
+export async function checkNotificationPermission(): Promise<PermissionStatus> {
   try {
-    return await isPermissionGranted();
+    const granted = await isPermissionGranted();
+    return granted ? 'granted' : 'denied';
   } catch (error) {
     console.error('Failed to check notification permission:', error);
-    return false;
+    return 'unavailable';
   }
 }
 
 /**
  * Request notification permission from the user.
+ * Returns 'unavailable' if the notification system cannot be accessed.
  */
-export async function requestNotificationPermission(): Promise<boolean> {
+export async function requestNotificationPermission(): Promise<PermissionStatus> {
   try {
     const permission = await requestPermission();
-    return permission === 'granted';
+    return permission === 'granted' ? 'granted' : 'denied';
   } catch (error) {
     console.error('Failed to request notification permission:', error);
-    return false;
+    return 'unavailable';
   }
 }
 
@@ -141,9 +146,9 @@ export async function requestNotificationPermission(): Promise<boolean> {
  * Send an immediate notification.
  */
 export async function showNotification(title: string, body: string): Promise<void> {
-  const hasPermission = await checkNotificationPermission();
-  if (!hasPermission) {
-    console.warn('Notification permission not granted');
+  const permissionStatus = await checkNotificationPermission();
+  if (permissionStatus !== 'granted') {
+    console.warn('Notification permission not granted:', permissionStatus);
     return;
   }
 
@@ -165,9 +170,9 @@ export async function scheduleNotification(
   type: NotificationType,
   goalId?: string
 ): Promise<string> {
-  const hasPermission = await checkNotificationPermission();
-  if (!hasPermission) {
-    throw new Error('Notification permission not granted');
+  const permissionStatus = await checkNotificationPermission();
+  if (permissionStatus !== 'granted') {
+    throw new Error(`Notification permission not granted: ${permissionStatus}`);
   }
 
   const nextExecution = getNextExecutionTime(cronExpression);

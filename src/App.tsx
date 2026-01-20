@@ -19,6 +19,7 @@ import { createOrUpdateBudget, getCurrentBudget, getSavingsGoalWithStats } from 
 import { initializeNotifications } from "@/lib/notification-scheduler";
 import type { Budget, SavingsGoalWithStats } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
+import { PermissionPrompt } from "./components/PermissionPrompt";
 
 type View =
   | "loading"
@@ -53,6 +54,7 @@ function App() {
   const [view, setView] = useState<View>("loading");
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [selectedGoal, setSelectedGoal] = useState<SavingsGoalWithStats | null>(null);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
 
   // Load budget when authenticated or skipped auth
   const loadBudget = useCallback(async () => {
@@ -60,7 +62,14 @@ function App() {
     try {
       const currentBudget = await getCurrentBudget();
       setBudget(currentBudget);
-      setView(currentBudget ? "home" : "setup");
+
+      if (currentBudget) {
+        setView("home");
+        // Show permission prompt when user has a budget (not first-time setup)
+        setShowPermissionPrompt(true);
+      } else {
+        setView("setup");
+      }
 
       // Initialize notifications after app is ready
       initializeNotifications().catch(err => {
@@ -121,8 +130,11 @@ function App() {
       const newBudget = await createOrUpdateBudget(totalAmount, spendingLimit);
       setBudget(newBudget);
       setView("home");
+      // Show permission prompt after first budget setup
+      setShowPermissionPrompt(true);
     } catch (error) {
       console.error('Failed to save budget:', error);
+      throw error; // Re-throw so BudgetSetup can show error
     }
   };
 
@@ -305,6 +317,10 @@ function App() {
       {renderView()}
       {/* Show feedback button on home and setup views */}
       {(view === "home" || view === "setup") && <FeedbackButton />}
+      {/* Permission prompt overlay */}
+      {showPermissionPrompt && (
+        <PermissionPrompt onComplete={() => setShowPermissionPrompt(false)} />
+      )}
     </>
   );
 }
