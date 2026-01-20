@@ -4,6 +4,24 @@ import { getSupabase, isSupabaseConfigured } from './supabase';
 import type { Budget, Expense, SavingsContribution, SavingsGoal, SyncOperation, SyncQueueItem, SyncResult, SyncStatus } from './types';
 import { generateId } from './types';
 
+// Define NotificationPreferences interface here to avoid circular dependency with notifications.ts
+interface NotificationPreferencesSync {
+  id: number;
+  user_id: string | null;
+  notifications_enabled: boolean;
+  monthly_checkin_enabled: boolean;
+  monthly_checkin_cron: string;
+  progress_updates_enabled: boolean;
+  progress_updates_cron: string;
+  why_reminders_enabled: boolean;
+  why_reminders_cron: string;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const MAX_RETRY_ATTEMPTS = 5;
 
 /**
@@ -214,6 +232,8 @@ export async function pushChanges(): Promise<SyncResult> {
         await pushSavingsGoal(supabase, item, payload);
       } else if (item.table_name === 'savings_contributions') {
         await pushSavingsContribution(supabase, item, payload);
+      } else if (item.table_name === 'notification_preferences') {
+        await pushNotificationPreferences(supabase, item, payload);
       }
 
       await removeSyncItem(item.id);
@@ -410,6 +430,41 @@ async function pushSavingsContribution(
 }
 
 /**
+ * Push notification preferences to Supabase.
+ * Note: notification_preferences uses user_id as primary key, not a separate id field.
+ */
+async function pushNotificationPreferences(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<NotificationPreferencesSync>
+): Promise<void> {
+  if (!supabase) return;
+
+  // Notification preferences are always upsert (no soft delete)
+  const { error } = await supabase
+    .from('notification_preferences')
+    .upsert({
+      user_id: item.user_id,
+      notifications_enabled: payload.notifications_enabled,
+      monthly_checkin_enabled: payload.monthly_checkin_enabled,
+      monthly_checkin_cron: payload.monthly_checkin_cron,
+      progress_updates_enabled: payload.progress_updates_enabled,
+      progress_updates_cron: payload.progress_updates_cron,
+      why_reminders_enabled: payload.why_reminders_enabled,
+      why_reminders_cron: payload.why_reminders_cron,
+      quiet_hours_enabled: payload.quiet_hours_enabled,
+      quiet_hours_start: payload.quiet_hours_start,
+      quiet_hours_end: payload.quiet_hours_end,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      updated_at: payload.updated_at || new Date().toISOString(),
+    }, {
+      onConflict: 'user_id',
+    });
+
+  if (error) throw new Error(error.message);
+}
+
+/**
  * Pull remote changes from Supabase.
  */
 export async function pullChanges(): Promise<SyncResult> {
@@ -521,6 +576,28 @@ export async function pullChanges(): Promise<SyncResult> {
     for (const remoteSavingsContribution of remoteSavingsContributions || []) {
       const merged = await mergeSavingsContribution(db, remoteSavingsContribution, userId);
       if (merged) result.pulled++;
+    }
+
+    // Pull notification preferences
+    let notificationPrefsQuery = supabase
+      .from('notification_preferences')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      notificationPrefsQuery = notificationPrefsQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteNotificationPrefs, error: notificationPrefsError } = await notificationPrefsQuery;
+    if (notificationPrefsError) {
+      // Table might not exist yet - log but don't fail
+      console.warn('Failed to pull notification preferences:', notificationPrefsError.message);
+    } else {
+      // Merge notification preferences
+      for (const remotePrefs of remoteNotificationPrefs || []) {
+        const merged = await mergeNotificationPreferences(db, remotePrefs, userId);
+        if (merged) result.pulled++;
+      }
     }
 
     // Update last sync timestamp
@@ -785,6 +862,94 @@ async function mergeSavingsContribution(
           remote.created_at,
           remote.updated_at,
           remote.deleted_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge remote notification preferences with local data (last write wins).
+ * Note: notification_preferences uses a single row with id=1 locally.
+ */
+async function mergeNotificationPreferences(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  // Local notification_preferences always has id=1
+  const localResult = await db.select<NotificationPreferencesSync[]>(
+    `SELECT * FROM notification_preferences WHERE id = 1`
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local ? new Date(local.updated_at).getTime() : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    const now = new Date().toISOString();
+
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE notification_preferences SET
+          user_id = $1,
+          notifications_enabled = $2,
+          monthly_checkin_enabled = $3,
+          monthly_checkin_cron = $4,
+          progress_updates_enabled = $5,
+          progress_updates_cron = $6,
+          why_reminders_enabled = $7,
+          why_reminders_cron = $8,
+          quiet_hours_enabled = $9,
+          quiet_hours_start = $10,
+          quiet_hours_end = $11,
+          updated_at = $12
+         WHERE id = 1`,
+        [
+          userId,
+          remote.notifications_enabled ? 1 : 0,
+          remote.monthly_checkin_enabled ? 1 : 0,
+          remote.monthly_checkin_cron || '0 9 2 * *',
+          remote.progress_updates_enabled ? 1 : 0,
+          remote.progress_updates_cron || '0 10 * * 1',
+          remote.why_reminders_enabled ? 1 : 0,
+          remote.why_reminders_cron || '0 19 * * 1',
+          remote.quiet_hours_enabled ? 1 : 0,
+          remote.quiet_hours_start || '22:00',
+          remote.quiet_hours_end || '08:00',
+          remote.updated_at,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO notification_preferences (
+          id, user_id, notifications_enabled,
+          monthly_checkin_enabled, monthly_checkin_cron,
+          progress_updates_enabled, progress_updates_cron,
+          why_reminders_enabled, why_reminders_cron,
+          quiet_hours_enabled, quiet_hours_start, quiet_hours_end,
+          created_at, updated_at
+        ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          userId,
+          remote.notifications_enabled ? 1 : 0,
+          remote.monthly_checkin_enabled ? 1 : 0,
+          remote.monthly_checkin_cron || '0 9 2 * *',
+          remote.progress_updates_enabled ? 1 : 0,
+          remote.progress_updates_cron || '0 10 * * 1',
+          remote.why_reminders_enabled ? 1 : 0,
+          remote.why_reminders_cron || '0 19 * * 1',
+          remote.quiet_hours_enabled ? 1 : 0,
+          remote.quiet_hours_start || '22:00',
+          remote.quiet_hours_end || '08:00',
+          remote.created_at || now,
+          remote.updated_at,
         ]
       );
     }

@@ -171,10 +171,62 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "add notification preferences and scheduled notifications tables",
+            sql: r#"
+                -- Notification preferences (single row for user settings)
+                -- Cron expressions encode both frequency and time
+                CREATE TABLE IF NOT EXISTS notification_preferences (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    user_id TEXT,
+                    notifications_enabled INTEGER DEFAULT 1,
+                    -- Monthly check-in: cron for day-of-month + time (default: 2nd at 09:00)
+                    monthly_checkin_enabled INTEGER DEFAULT 1,
+                    monthly_checkin_cron TEXT DEFAULT '0 9 2 * *',
+                    -- Progress updates: cron for frequency + time (default: weekly Monday at 10:00)
+                    progress_updates_enabled INTEGER DEFAULT 1,
+                    progress_updates_cron TEXT DEFAULT '0 10 * * 1',
+                    -- Why reminders: cron for frequency + time (default: weekly Monday at 19:00)
+                    why_reminders_enabled INTEGER DEFAULT 1,
+                    why_reminders_cron TEXT DEFAULT '0 19 * * 1',
+                    -- Quiet hours (start/end times as HH:MM)
+                    quiet_hours_enabled INTEGER DEFAULT 0,
+                    quiet_hours_start TEXT DEFAULT '22:00',
+                    quiet_hours_end TEXT DEFAULT '08:00',
+                    -- Timestamps
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                -- Scheduled notifications tracking
+                CREATE TABLE IF NOT EXISTS scheduled_notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    notification_type TEXT NOT NULL,
+                    goal_id TEXT,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    scheduled_at TEXT NOT NULL,
+                    cron_expression TEXT,
+                    sent_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (goal_id) REFERENCES savings_goals(id) ON DELETE CASCADE
+                );
+
+                -- Index for efficient queries
+                CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_scheduled
+                    ON scheduled_notifications(scheduled_at);
+                CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_type
+                    ON scheduled_notifications(notification_type);
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:goaldy.db", migrations)

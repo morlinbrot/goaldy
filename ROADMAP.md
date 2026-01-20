@@ -274,15 +274,17 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: App reaches out to you.
 
-- [ ] Firebase Cloud Messaging setup
-- [ ] Backend: Scheduled jobs for notifications (Supabase Edge Functions)
-- [ ] Notification types:
+- [x] Local notifications via Tauri notification plugin (offline-first approach)
+- [x] Backend: Scheduled jobs for notifications (Supabase Edge Functions)
+- [x] Notification types:
   - Monthly check-in reminder (2nd of month)
   - Progress updates (weekly)
   - "Why" reminders (configurable)
-- [ ] Notification preferences in settings
+- [x] Notification preferences in settings
 
 **Outcome**: App actively engages you even when closed.
+
+**Note**: FCM for mobile push notifications deferred to when mobile builds become priority. Current implementation uses Tauri's native notification plugin for local notifications, which aligns with the offline-first principle.
 
 ---
 
@@ -340,6 +342,22 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 - [ ] Settings & preferences screen
 - [ ] Data export (CSV/JSON)
 - [ ] App store preparation
+
+---
+
+### Phase 9: Mobile Push Notifications (FCM)
+
+**Goal**: True push notifications for mobile devices.
+
+- [ ] Firebase project setup and configuration
+- [ ] FCM integration for Android (Tauri mobile build)
+- [ ] APNs integration for iOS (Tauri mobile build)
+- [ ] Push token registration and management
+- [ ] Server-side push delivery via Supabase Edge Functions
+- [ ] Background notification handling
+- [ ] Notification action handlers (deep links to goals)
+
+**Outcome**: Users receive notifications even when the app is completely closed on mobile.
 
 ---
 

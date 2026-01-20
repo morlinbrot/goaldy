@@ -11,10 +11,12 @@ import {
     MonthlyCheckIn,
 } from "@/components/goals";
 import { HomeScreen } from "@/components/HomeScreen";
+import { NotificationSettings } from "@/components/settings/NotificationSettings";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSync } from "@/contexts/SyncContext";
 import { hasCompletedOnboarding } from "@/lib/auth";
 import { createOrUpdateBudget, getCurrentBudget, getSavingsGoalWithStats } from "@/lib/database";
+import { initializeNotifications } from "@/lib/notification-scheduler";
 import type { Budget, SavingsGoalWithStats } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
 
@@ -29,7 +31,8 @@ type View =
   | "goal-create"
   | "goal-detail"
   | "goal-checkin"
-  | "goal-allocation";
+  | "goal-allocation"
+  | "settings";
 
 function App() {
   const {
@@ -58,6 +61,11 @@ function App() {
       const currentBudget = await getCurrentBudget();
       setBudget(currentBudget);
       setView(currentBudget ? "home" : "setup");
+
+      // Initialize notifications after app is ready
+      initializeNotifications().catch(err => {
+        console.error('Failed to initialize notifications:', err);
+      });
     } catch (error) {
       console.error('Failed to load budget:', error);
       setView("setup");
@@ -268,6 +276,12 @@ function App() {
             onSaved={handleAllocationSaved}
           />
         );
+      case "settings":
+        return (
+          <NotificationSettings
+            onBack={() => setView("home")}
+          />
+        );
       case "home":
       default:
         if (!budget) {
@@ -280,6 +294,7 @@ function App() {
             onEditBudget={() => setView("setup")}
             onViewFeedback={() => setView("feedback")}
             onViewGoals={() => setView("goals")}
+            onViewSettings={() => setView("settings")}
           />
         );
     }

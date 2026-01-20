@@ -3,7 +3,7 @@ import { useSync } from "@/contexts/SyncContext";
 import { addExpense, deleteExpense, getCategories, getExpensesForMonth, getMonthlySpending } from "@/lib/database";
 import { formatCurrency, type Budget, type Category, type ExpenseWithCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronUp, MessageSquare, Settings, Target } from "lucide-react";
+import { Bell, ChevronDown, ChevronUp, MessageSquare, Settings, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { CategorySelector } from "./CategorySelector";
 import { ExpenseList } from "./ExpenseList";
@@ -16,9 +16,10 @@ interface HomeScreenProps {
   onEditBudget: () => void;
   onViewFeedback: () => void;
   onViewGoals: () => void;
+  onViewSettings: () => void;
 }
 
-export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals }: HomeScreenProps) {
+export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals, onViewSettings }: HomeScreenProps) {
   const { refreshStatus } = useSync();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -108,6 +109,9 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals }
           </Button>
           <Button variant="ghost" size="icon" onClick={onViewFeedback}>
             <MessageSquare className="w-5 h-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onViewSettings}>
+            <Bell className="w-5 h-5" />
           </Button>
           <Button variant="ghost" size="icon" onClick={onEditBudget}>
             <Settings className="w-5 h-5" />
