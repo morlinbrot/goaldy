@@ -6,7 +6,7 @@
  */
 
 const DB_NAME = 'goaldy';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Table definitions with their key fields
 const TABLES = [
@@ -15,6 +15,8 @@ const TABLES = [
   'categories',
   'savings_goals',
   'savings_contributions',
+  'habit_goals',
+  'habit_tracking',
   'feedback_notes',
   'sync_queue',
   'auth_state',
@@ -411,6 +413,20 @@ export class BrowserDatabase {
     if (goalIdMatch) {
       const paramIndex = parseInt(goalIdMatch[1], 10) - 1;
       if (r.goal_id !== params[paramIndex]) return false;
+    }
+
+    // Handle habit_goal_id = $X
+    const habitGoalIdMatch = query.match(/habit_goal_id\s*=\s*\$(\d+)/i);
+    if (habitGoalIdMatch) {
+      const paramIndex = parseInt(habitGoalIdMatch[1], 10) - 1;
+      if (r.habit_goal_id !== params[paramIndex]) return false;
+    }
+
+    // Handle category_id = $X (for habit goals and expense queries)
+    const categoryIdMatch = query.match(/category_id\s*=\s*\$(\d+)/i);
+    if (categoryIdMatch) {
+      const paramIndex = parseInt(categoryIdMatch[1], 10) - 1;
+      if (r.category_id !== params[paramIndex]) return false;
     }
 
     // Handle strftime('%Y-%m', date) = $X (for date filtering)

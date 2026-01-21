@@ -18,6 +18,9 @@ import { GoalCheckInRoute } from "./routes/goals/checkin";
 import { GoalCreateRoute } from "./routes/goals/create";
 import { GoalDetailRoute } from "./routes/goals/detail";
 import { GoalsIndexRoute } from "./routes/goals/index";
+import { HabitCreateRoute } from "./routes/habits/create";
+import { HabitDetailRoute } from "./routes/habits/detail";
+import { HabitsIndexRoute } from "./routes/habits/index";
 import { HomeRoute } from "./routes/home";
 import { SettingsRoute } from "./routes/settings";
 import { SetupRoute } from "./routes/setup";
@@ -112,6 +115,25 @@ const goalAllocationRoute = createRoute({
   component: GoalAllocationRoute,
 });
 
+// Habits routes
+const habitsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/habits",
+  component: HabitsIndexRoute,
+});
+
+const habitCreateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/habits/create",
+  component: HabitCreateRoute,
+});
+
+const habitDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/habits/$habitId",
+  component: HabitDetailRoute,
+});
+
 // Build the route tree
 const routeTree = rootRoute.addChildren([
   loginRoute,
@@ -125,6 +147,9 @@ const routeTree = rootRoute.addChildren([
   goalDetailRoute,
   goalCheckInRoute,
   goalAllocationRoute,
+  habitsRoute,
+  habitCreateRoute,
+  habitDetailRoute,
 ]);
 
 // Create and export the router

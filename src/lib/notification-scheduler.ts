@@ -1,4 +1,4 @@
-import { getAllSavingsGoalsWithStats } from './database';
+import { getAllHabitGoalsWithStats, getAllSavingsGoalsWithStats, getHabitGoalsNeedingAlert } from './database';
 import {
     cancelNotificationsByType,
     checkAndSendDueNotifications,
@@ -9,7 +9,7 @@ import {
     showNotification,
     type NotificationPreferences
 } from './notifications';
-import type { SavingsGoalWithStats } from './types';
+import type { HabitGoalWithStats, SavingsGoalWithStats } from './types';
 
 // Background notification checker state
 let notificationCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -98,6 +98,80 @@ export async function scheduleWhyReminders(
     'why_reminder',
     goal.id
   );
+}
+
+/**
+ * Check and send habit alerts for habits approaching or exceeding limits.
+ * This is called during the regular notification check cycle.
+ */
+export async function checkAndSendHabitAlerts(): Promise<void> {
+  const prefs = await getNotificationPreferences();
+  if (!prefs.notifications_enabled) {
+    return;
+  }
+
+  const habitsNeedingAlert = await getHabitGoalsNeedingAlert();
+
+  for (const habit of habitsNeedingAlert) {
+    const alertMessage = generateHabitAlertMessage(habit);
+
+    // Send immediate notification for critical alerts
+    if (habit.status === 'exceeded') {
+      await showNotification(
+        `Limit Exceeded: ${habit.category_name || habit.name}`,
+        alertMessage
+      );
+    } else if (habit.status === 'warning') {
+      await showNotification(
+        `Approaching Limit: ${habit.category_name || habit.name}`,
+        alertMessage
+      );
+    }
+  }
+}
+
+/**
+ * Generate an alert message for a habit goal.
+ */
+function generateHabitAlertMessage(habit: HabitGoalWithStats): string {
+  const percentage = Math.round(habit.percentage_used);
+  const remaining = habit.current_month_target - habit.current_month_spent;
+  const categoryName = habit.category_name || 'this category';
+
+  if (habit.status === 'exceeded') {
+    const overBy = Math.abs(remaining);
+    return `You've spent €${overBy.toFixed(0)} over your ${categoryName} limit this month. Consider adjusting your spending.`;
+  } else if (habit.status === 'warning') {
+    return `You've used ${percentage}% of your ${categoryName} budget. Only €${remaining.toFixed(0)} remaining.`;
+  }
+  return `You're on track with ${categoryName}! ${percentage}% used.`;
+}
+
+/**
+ * Schedule habit milestone notifications (e.g., streak achievements).
+ */
+export async function scheduleHabitMilestoneNotifications(
+  prefs: NotificationPreferences
+): Promise<void> {
+  // Cancel existing habit milestone notifications
+  await cancelNotificationsByType('habit_milestone');
+
+  if (!prefs.notifications_enabled) {
+    return;
+  }
+
+  const habits = await getAllHabitGoalsWithStats();
+
+  // Find habits with significant streaks to celebrate
+  for (const habit of habits) {
+    if (habit.current_streak > 0 && habit.current_streak % 3 === 0) {
+      // Celebrate every 3-month milestone
+      await showNotification(
+        `Habit Streak: ${habit.current_streak} Months!`,
+        `Amazing! You've kept your ${habit.category_name || habit.name} spending under control for ${habit.current_streak} months in a row!`
+      );
+    }
+  }
 }
 
 /**
@@ -271,6 +345,14 @@ async function runNotificationCheck(): Promise<void> {
 
     // Check and send due notifications
     await checkAndSendDueNotifications();
+
+    // Check habit alerts (only once per day to avoid spam)
+    const now = new Date();
+    const hourOfDay = now.getHours();
+    // Check habit alerts around 6 PM (18:00) when user might review their day
+    if (hourOfDay === 18 && now.getMinutes() < 2) {
+      await checkAndSendHabitAlerts();
+    }
   } catch (error) {
     console.error('[Notifications] Check failed:', error);
   }

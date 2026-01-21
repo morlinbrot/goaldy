@@ -1,6 +1,6 @@
 import { getBrowserDatabase } from "./browser-database";
 import { isTauri } from "./platform";
-import type { Budget, Category, Expense, ExpenseWithCategory, FeedbackNote, SavingsContribution, SavingsGoal, SavingsGoalWithStats } from "./types";
+import type { Budget, Category, Expense, ExpenseWithCategory, FeedbackNote, HabitGoal, HabitGoalWithStats, HabitTracking, SavingsContribution, SavingsGoal, SavingsGoalWithStats } from "./types";
 import { generateId, getCurrentMonth } from "./types";
 
 // Database interface that both Tauri SQLite and BrowserDatabase implement
@@ -661,4 +661,420 @@ export async function getGoalsNeedingCheckIn(): Promise<SavingsGoal[]> {
   }
 
   return goalsNeedingCheckIn;
+}
+
+// ============================================
+// Habit Goals operations
+// ============================================
+
+export async function getHabitGoals(): Promise<HabitGoal[]> {
+  const database = await getDatabase();
+  return database.select<HabitGoal[]>(
+    "SELECT * FROM habit_goals WHERE deleted_at IS NULL ORDER BY created_at DESC"
+  );
+}
+
+export async function getHabitGoal(id: string): Promise<HabitGoal | null> {
+  const database = await getDatabase();
+  const result = await database.select<HabitGoal[]>(
+    "SELECT * FROM habit_goals WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  return result[0] || null;
+}
+
+export async function createHabitGoal(
+  name: string,
+  categoryId: string,
+  ruleType: 'max_amount' | 'max_percentage' | 'reduce_by',
+  ruleValue: number,
+  durationMonths?: number
+): Promise<HabitGoal> {
+  const database = await getDatabase();
+  const id = generateId();
+  const now = new Date().toISOString();
+  const startDate = now.split('T')[0];
+  const userId = await getCurrentUserId();
+
+  // Try with user_id column first, fall back to without if migration hasn't run
+  try {
+    await database.execute(
+      `INSERT INTO habit_goals (id, user_id, name, category_id, rule_type, rule_value, duration_months, start_date, privacy_level, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'private', $9, $10)`,
+      [id, userId, name, categoryId, ruleType, ruleValue, durationMonths ?? null, startDate, now, now]
+    );
+  } catch (error) {
+    // Fallback for older schema without user_id column
+    console.warn('Falling back to legacy habit_goals schema:', error);
+    await database.execute(
+      `INSERT INTO habit_goals (id, name, category_id, rule_type, rule_value, duration_months, start_date, privacy_level, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'private', $8, $9)`,
+      [id, name, categoryId, ruleType, ruleValue, durationMonths ?? null, startDate, now, now]
+    );
+  }
+
+  const goal: HabitGoal = {
+    id,
+    user_id: userId,
+    name,
+    category_id: categoryId,
+    rule_type: ruleType,
+    rule_value: ruleValue,
+    duration_months: durationMonths ?? null,
+    start_date: startDate,
+    privacy_level: 'private',
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  };
+
+  // Queue for sync
+  if (userId) {
+    await queueChange('habit_goals', id, 'insert', goal);
+  }
+
+  return goal;
+}
+
+export async function updateHabitGoal(
+  id: string,
+  updates: Partial<Pick<HabitGoal, 'name' | 'rule_value' | 'duration_months' | 'privacy_level'>>
+): Promise<void> {
+  const database = await getDatabase();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  const setClauses: string[] = ['updated_at = $1'];
+  const params: (string | number | null)[] = [now];
+  let paramIndex = 2;
+
+  if (updates.name !== undefined) {
+    setClauses.push(`name = $${paramIndex++}`);
+    params.push(updates.name);
+  }
+  if (updates.rule_value !== undefined) {
+    setClauses.push(`rule_value = $${paramIndex++}`);
+    params.push(updates.rule_value);
+  }
+  if (updates.duration_months !== undefined) {
+    setClauses.push(`duration_months = $${paramIndex++}`);
+    params.push(updates.duration_months);
+  }
+  if (updates.privacy_level !== undefined) {
+    setClauses.push(`privacy_level = $${paramIndex++}`);
+    params.push(updates.privacy_level);
+  }
+
+  params.push(id);
+
+  await database.execute(
+    `UPDATE habit_goals SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+    params
+  );
+
+  // Queue for sync
+  if (userId) {
+    const result = await database.select<HabitGoal[]>(
+      "SELECT * FROM habit_goals WHERE id = $1",
+      [id]
+    );
+    if (result[0]) {
+      await queueChange('habit_goals', id, 'update', result[0]);
+    }
+  }
+}
+
+export async function deleteHabitGoal(id: string): Promise<void> {
+  const database = await getDatabase();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  if (userId) {
+    // Soft delete for authenticated users (for sync)
+    await database.execute(
+      "UPDATE habit_goals SET deleted_at = $1, updated_at = $1 WHERE id = $2",
+      [now, id]
+    );
+    await queueChange('habit_goals', id, 'delete', { id, deleted_at: now, updated_at: now });
+  } else {
+    // Hard delete for offline-only users
+    await database.execute("DELETE FROM habit_goals WHERE id = $1", [id]);
+  }
+
+  // Also delete associated tracking records
+  if (userId) {
+    await database.execute(
+      "UPDATE habit_tracking SET deleted_at = $1, updated_at = $1 WHERE habit_goal_id = $2",
+      [now, id]
+    );
+  } else {
+    await database.execute("DELETE FROM habit_tracking WHERE habit_goal_id = $1", [id]);
+  }
+}
+
+// ============================================
+// Habit Tracking operations
+// ============================================
+
+export async function getHabitTrackingForGoal(habitGoalId: string): Promise<HabitTracking[]> {
+  const database = await getDatabase();
+  return database.select<HabitTracking[]>(
+    "SELECT * FROM habit_tracking WHERE habit_goal_id = $1 AND deleted_at IS NULL ORDER BY month DESC",
+    [habitGoalId]
+  );
+}
+
+export async function getHabitTrackingForMonth(habitGoalId: string, month: string): Promise<HabitTracking | null> {
+  const database = await getDatabase();
+  const result = await database.select<HabitTracking[]>(
+    "SELECT * FROM habit_tracking WHERE habit_goal_id = $1 AND month = $2 AND deleted_at IS NULL",
+    [habitGoalId, month]
+  );
+  return result[0] || null;
+}
+
+export async function recordHabitTracking(
+  habitGoalId: string,
+  month: string,
+  spentAmount: number,
+  targetAmount: number,
+  isCompliant: boolean
+): Promise<HabitTracking> {
+  const database = await getDatabase();
+  const id = generateId();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  // Check if tracking already exists for this month
+  const existing = await getHabitTrackingForMonth(habitGoalId, month);
+  if (existing) {
+    // Update existing tracking
+    await database.execute(
+      "UPDATE habit_tracking SET spent_amount = $1, target_amount = $2, is_compliant = $3, updated_at = $4 WHERE id = $5",
+      [spentAmount, targetAmount, isCompliant ? 1 : 0, now, existing.id]
+    );
+
+    const updated: HabitTracking = {
+      ...existing,
+      spent_amount: spentAmount,
+      target_amount: targetAmount,
+      is_compliant: isCompliant ? 1 : 0,
+      updated_at: now,
+    };
+
+    if (userId) {
+      await queueChange('habit_tracking', existing.id, 'update', updated);
+    }
+
+    return updated;
+  }
+
+  // Create new tracking record
+  await database.execute(
+    `INSERT INTO habit_tracking (id, user_id, habit_goal_id, month, spent_amount, target_amount, is_compliant, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [id, userId, habitGoalId, month, spentAmount, targetAmount, isCompliant ? 1 : 0, now, now]
+  );
+
+  const tracking: HabitTracking = {
+    id,
+    user_id: userId,
+    habit_goal_id: habitGoalId,
+    month,
+    spent_amount: spentAmount,
+    target_amount: targetAmount,
+    is_compliant: isCompliant ? 1 : 0,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  };
+
+  if (userId) {
+    await queueChange('habit_tracking', id, 'insert', tracking);
+  }
+
+  return tracking;
+}
+
+export async function getHabitStreakForGoal(habitGoalId: string): Promise<number> {
+  const database = await getDatabase();
+  const trackingRecords = await database.select<HabitTracking[]>(
+    "SELECT * FROM habit_tracking WHERE habit_goal_id = $1 AND deleted_at IS NULL ORDER BY month DESC",
+    [habitGoalId]
+  );
+
+  if (trackingRecords.length === 0) return 0;
+
+  let streak = 0;
+  const now = new Date();
+  // Start from previous month (current month might still be in progress)
+  let checkMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  for (const tracking of trackingRecords) {
+    const trackingMonth = tracking.month; // "2026-01" format
+    const expectedMonth = `${checkMonth.getFullYear()}-${String(checkMonth.getMonth() + 1).padStart(2, '0')}`;
+
+    if (trackingMonth === expectedMonth && tracking.is_compliant === 1) {
+      streak++;
+      checkMonth = new Date(checkMonth.getFullYear(), checkMonth.getMonth() - 1, 1);
+    } else if (trackingMonth < expectedMonth) {
+      // Gap in tracking or non-compliant, streak broken
+      break;
+    }
+  }
+
+  return streak;
+}
+
+// Get spending for a specific category in a month
+export async function getCategorySpendingForMonth(categoryId: string, month?: string): Promise<number> {
+  const database = await getDatabase();
+  const targetMonth = month || getCurrentMonth();
+
+  const result = await database.select<{ total: number }[]>(
+    `SELECT COALESCE(SUM(amount), 0) as total FROM expenses
+     WHERE category_id = $1 AND strftime('%Y-%m', date) = $2 AND deleted_at IS NULL`,
+    [categoryId, targetMonth]
+  );
+
+  return result[0]?.total || 0;
+}
+
+// Get spending for previous month for a category (for reduce_by calculations)
+export async function getCategorySpendingForPreviousMonth(categoryId: string): Promise<number> {
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+
+  return getCategorySpendingForMonth(categoryId, prevMonthStr);
+}
+
+// Calculate target amount for a habit goal based on rule type
+export async function calculateHabitTargetAmount(
+  habitGoal: HabitGoal,
+  month?: string
+): Promise<number> {
+  const targetMonth = month || getCurrentMonth();
+
+  switch (habitGoal.rule_type) {
+    case 'max_amount':
+      // Simple max amount limit
+      return habitGoal.rule_value;
+
+    case 'max_percentage': {
+      // Percentage of total monthly spending
+      const totalSpending = await getMonthlySpending(targetMonth);
+      // If no spending yet, use budget as reference
+      if (totalSpending === 0) {
+        const budget = await getCurrentBudget();
+        if (budget) {
+          return (habitGoal.rule_value / 100) * budget.total_amount;
+        }
+      }
+      return (habitGoal.rule_value / 100) * totalSpending;
+    }
+
+    case 'reduce_by': {
+      // Reduce spending by X% compared to last month
+      const prevMonthSpending = await getCategorySpendingForPreviousMonth(habitGoal.category_id);
+      if (prevMonthSpending === 0) {
+        // No previous month data, use a reasonable default
+        return habitGoal.rule_value; // Fall back to treating it as max_amount
+      }
+      return prevMonthSpending * (1 - habitGoal.rule_value / 100);
+    }
+
+    default:
+      return habitGoal.rule_value;
+  }
+}
+
+// Get habit goal with calculated stats
+export async function getHabitGoalWithStats(habitGoalId: string): Promise<HabitGoalWithStats | null> {
+  const goal = await getHabitGoal(habitGoalId);
+  if (!goal) return null;
+
+  const database = await getDatabase();
+  const currentMonth = getCurrentMonth();
+
+  // Get category info
+  const categories = await database.select<Category[]>(
+    "SELECT * FROM categories WHERE id = $1",
+    [goal.category_id]
+  );
+  const category = categories[0];
+
+  // Get current month spending for this category
+  const currentMonthSpent = await getCategorySpendingForMonth(goal.category_id, currentMonth);
+
+  // Calculate target amount based on rule type
+  const currentMonthTarget = await calculateHabitTargetAmount(goal, currentMonth);
+
+  // Calculate percentage used
+  const percentageUsed = currentMonthTarget > 0
+    ? (currentMonthSpent / currentMonthTarget) * 100
+    : 0;
+
+  // Determine compliance and status
+  const isCompliant = currentMonthSpent <= currentMonthTarget;
+  let status: 'safe' | 'warning' | 'exceeded';
+  if (percentageUsed >= 100) {
+    status = 'exceeded';
+  } else if (percentageUsed >= 80) {
+    status = 'warning';
+  } else {
+    status = 'safe';
+  }
+
+  // Get streak
+  const streak = await getHabitStreakForGoal(habitGoalId);
+
+  return {
+    ...goal,
+    category_name: category?.name || null,
+    category_icon: category?.icon || null,
+    category_color: category?.color || null,
+    current_month_spent: currentMonthSpent,
+    current_month_target: currentMonthTarget,
+    percentage_used: percentageUsed,
+    is_compliant: isCompliant,
+    current_streak: streak,
+    status,
+  };
+}
+
+// Get all habit goals with stats
+export async function getAllHabitGoalsWithStats(): Promise<HabitGoalWithStats[]> {
+  const goals = await getHabitGoals();
+  const goalsWithStats: HabitGoalWithStats[] = [];
+
+  for (const goal of goals) {
+    const stats = await getHabitGoalWithStats(goal.id);
+    if (stats) {
+      goalsWithStats.push(stats);
+    }
+  }
+
+  return goalsWithStats;
+}
+
+// Get habit goals that are approaching or exceeding limits (for alerts)
+export async function getHabitGoalsNeedingAlert(): Promise<HabitGoalWithStats[]> {
+  const goalsWithStats = await getAllHabitGoalsWithStats();
+
+  // Return goals that are at warning (80%+) or exceeded status
+  return goalsWithStats.filter(goal => goal.status === 'warning' || goal.status === 'exceeded');
+}
+
+// Finalize month tracking for all habit goals (called at end of month or for past months)
+export async function finalizeHabitTrackingForMonth(month: string): Promise<void> {
+  const goals = await getHabitGoals();
+
+  for (const goal of goals) {
+    const spent = await getCategorySpendingForMonth(goal.category_id, month);
+    const target = await calculateHabitTargetAmount(goal, month);
+    const isCompliant = spent <= target;
+
+    await recordHabitTracking(goal.id, month, spent, target, isCompliant);
+  }
 }

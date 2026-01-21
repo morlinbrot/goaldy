@@ -79,8 +79,9 @@ export interface SavingsGoalWithStats extends SavingsGoal {
 
 export interface HabitGoal {
   id: string;
+  user_id: string | null;
   name: string;
-  category_id: string | null;
+  category_id: string;
   rule_type: 'max_amount' | 'max_percentage' | 'reduce_by';
   rule_value: number;
   duration_months: number | null;
@@ -88,6 +89,33 @@ export interface HabitGoal {
   privacy_level: 'private' | 'progress_only' | 'full';
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface HabitTracking {
+  id: string;
+  user_id: string | null;
+  habit_goal_id: string;
+  month: string; // "2026-01"
+  spent_amount: number;
+  target_amount: number;
+  is_compliant: number | null; // 1 = met target, 0 = exceeded
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+// Extended type with calculated stats for the UI
+export interface HabitGoalWithStats extends HabitGoal {
+  category_name: string | null;
+  category_icon: string | null;
+  category_color: string | null;
+  current_month_spent: number;
+  current_month_target: number;
+  percentage_used: number;
+  is_compliant: boolean;
+  current_streak: number;
+  status: 'safe' | 'warning' | 'exceeded';
 }
 
 export interface FeedbackNote {

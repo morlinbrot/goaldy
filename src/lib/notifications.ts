@@ -10,7 +10,7 @@ interface DatabaseInterface {
 }
 
 // Notification types
-export type NotificationType = 'monthly_checkin' | 'progress_update' | 'why_reminder';
+export type NotificationType = 'monthly_checkin' | 'progress_update' | 'why_reminder' | 'habit_alert' | 'habit_milestone';
 
 // Default cron expressions
 export const DEFAULT_MONTHLY_CRON = '0 9 2 * *';     // 2nd of month at 09:00

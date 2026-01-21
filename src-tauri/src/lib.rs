@@ -222,6 +222,39 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "add habit_tracking table and sync fields to habit_goals",
+            sql: r#"
+                -- Add user_id to habit_goals (nullable for offline-first)
+                ALTER TABLE habit_goals ADD COLUMN user_id TEXT;
+
+                -- Add deleted_at for soft deletes (sync-friendly)
+                ALTER TABLE habit_goals ADD COLUMN deleted_at TEXT;
+
+                -- Habit tracking (monthly snapshots of habit compliance)
+                CREATE TABLE IF NOT EXISTS habit_tracking (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    habit_goal_id TEXT NOT NULL,
+                    month TEXT NOT NULL,
+                    spent_amount REAL NOT NULL,
+                    target_amount REAL NOT NULL,
+                    is_compliant INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    deleted_at TEXT,
+                    FOREIGN KEY (habit_goal_id) REFERENCES habit_goals(id) ON DELETE CASCADE
+                );
+
+                -- Index for efficient queries
+                CREATE INDEX IF NOT EXISTS idx_habit_tracking_goal
+                    ON habit_tracking(habit_goal_id);
+                CREATE INDEX IF NOT EXISTS idx_habit_tracking_month
+                    ON habit_tracking(month);
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

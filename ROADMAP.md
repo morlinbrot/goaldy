@@ -292,11 +292,11 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: Track spending habits against targets.
 
-- [ ] Habit goal creation: Category + rule (max amount, max percentage, reduction target)
-- [ ] Automatic tracking against expenses
-- [ ] Habit goal dashboard with progress
-- [ ] Alerts when approaching/exceeding limits
-- [ ] Celebration system (same as savings goals)
+- [x] Habit goal creation: Category + rule (max amount, max percentage, reduction target)
+- [x] Automatic tracking against expenses
+- [x] Habit goal dashboard with progress
+- [x] Alerts when approaching/exceeding limits
+- [x] Celebration system (same as savings goals)
 
 **Outcome**: Both savings and spending habits tracked.
 

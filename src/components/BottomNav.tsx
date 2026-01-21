@@ -1,12 +1,13 @@
 import { cn } from "@/lib/utils";
 import { Link, useLocation } from "@tanstack/react-router";
-import { Home, MessageSquare, Settings, Target } from "lucide-react";
+import { Home, MessageSquare, Settings, Target, TrendingDown } from "lucide-react";
 
-type NavItem = "home" | "goals" | "feedback" | "settings";
+type NavItem = "home" | "goals" | "habits" | "feedback" | "settings";
 
 const navItems: { id: NavItem; icon: typeof Home; label: string; to: string }[] = [
   { id: "settings", icon: Settings, label: "Settings", to: "/settings" },
   { id: "feedback", icon: MessageSquare, label: "Feedback", to: "/feedback" },
+  { id: "habits", icon: TrendingDown, label: "Habits", to: "/habits" },
   { id: "goals", icon: Target, label: "Goals", to: "/goals" },
   { id: "home", icon: Home, label: "Home", to: "/" },
 ];
@@ -19,6 +20,7 @@ export function BottomNav() {
     const path = location.pathname;
     if (path === "/" || path === "/setup") return "home";
     if (path.startsWith("/goals")) return "goals";
+    if (path.startsWith("/habits")) return "habits";
     if (path === "/feedback") return "feedback";
     if (path === "/settings") return "settings";
     return "home";
