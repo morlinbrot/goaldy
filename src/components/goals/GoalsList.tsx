@@ -1,19 +1,19 @@
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getAllSavingsGoalsWithStats } from "@/lib/database";
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
-import { ArrowLeft, Plus, Target } from "lucide-react";
+import { Plus, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { SavingsGoalHeader } from "./SavingsGoalHeader";
 
 interface GoalsListProps {
-  onBack: () => void;
   onCreateGoal: () => void;
   onSelectGoal: (goalId: string) => void;
   onAllocation: () => void;
 }
 
-export function GoalsList({ onBack, onCreateGoal, onSelectGoal, onAllocation }: GoalsListProps) {
+export function GoalsList({ onCreateGoal, onSelectGoal, onAllocation }: GoalsListProps) {
   const [goals, setGoals] = useState<SavingsGoalWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -48,17 +48,11 @@ export function GoalsList({ onBack, onCreateGoal, onSelectGoal, onAllocation }: 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <h1 className="text-xl font-semibold">Savings Goals</h1>
-        </div>
+      <AppHeader title="Savings Goals">
         <Button variant="ghost" size="icon" onClick={onCreateGoal}>
           <Plus className="w-5 h-5" />
         </Button>
-      </header>
+      </AppHeader>
 
       {/* Main content */}
       <div className="flex-1 overflow-auto">

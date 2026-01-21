@@ -1,7 +1,7 @@
 import { LoginScreen } from "@/components/auth/LoginScreen";
 import { SignupScreen } from "@/components/auth/SignupScreen";
+import { BottomNav } from "@/components/BottomNav";
 import { BudgetSetup } from "@/components/BudgetSetup";
-import { FeedbackButton } from "@/components/FeedbackButton";
 import { FeedbackList } from "@/components/FeedbackList";
 import {
     AllocationView,
@@ -11,14 +11,15 @@ import {
     MonthlyCheckIn,
 } from "@/components/goals";
 import { HomeScreen } from "@/components/HomeScreen";
-import { NotificationSettings } from "@/components/settings/NotificationSettings";
+import { SettingsScreen } from "@/components/settings/SettingsScreen";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSync } from "@/contexts/SyncContext";
+import { useBackNavigation } from "@/hooks/useBackNavigation";
 import { hasCompletedOnboarding } from "@/lib/auth";
 import { createOrUpdateBudget, getCurrentBudget, getSavingsGoalWithStats } from "@/lib/database";
 import { initializeNotifications } from "@/lib/notification-scheduler";
 import type { Budget, SavingsGoalWithStats } from "@/lib/types";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PermissionPrompt } from "./components/PermissionPrompt";
 
 type View =
@@ -34,6 +35,17 @@ type View =
   | "goal-checkin"
   | "goal-allocation"
   | "settings";
+
+// Map views to their back destination
+const viewBackMap: Partial<Record<View, View>> = {
+  feedback: "home",
+  goals: "home",
+  "goal-create": "goals",
+  "goal-detail": "goals",
+  "goal-checkin": "goal-detail",
+  "goal-allocation": "goals",
+  setup: "home",
+};
 
 function App() {
   const {
@@ -125,6 +137,16 @@ function App() {
     setSelectedGoal(goalData);
   }, []);
 
+  // Back navigation handler for gestures
+  const handleBack = useMemo(() => {
+    const backView = viewBackMap[view];
+    if (!backView) return null;
+    return () => setView(backView);
+  }, [view]);
+
+  // Hook up swipe-back (iOS) and system back (Android)
+  useBackNavigation(handleBack);
+
   const handleSaveBudget = async (totalAmount: number, spendingLimit?: number) => {
     try {
       const newBudget = await createOrUpdateBudget(totalAmount, spendingLimit);
@@ -152,6 +174,36 @@ function App() {
     clearError();
     skipAuth();
   };
+
+  // Bottom nav handler
+  const handleBottomNav = (item: "home" | "goals" | "feedback" | "settings") => {
+    switch (item) {
+      case "home":
+        setView("home");
+        break;
+      case "goals":
+        setView("goals");
+        break;
+      case "feedback":
+        setView("feedback");
+        break;
+      case "settings":
+        setView("settings");
+        break;
+    }
+  };
+
+  // Determine active bottom nav item
+  const activeNavItem = useMemo(() => {
+    if (view === "home" || view === "setup") return "home";
+    if (view === "goals" || view.startsWith("goal-")) return "goals";
+    if (view === "feedback") return "feedback";
+    if (view === "settings") return "settings";
+    return "home";
+  }, [view]);
+
+  // Show bottom nav on main app views (not auth screens)
+  const showBottomNav = !["loading", "login", "signup"].includes(view);
 
   // Show loading screen while checking auth or loading budget
   if (view === "loading" || (authLoading || isLoadingBudget)) {
@@ -238,11 +290,10 @@ function App() {
           />
         );
       case "feedback":
-        return <FeedbackList onBack={() => setView("home")} />;
+        return <FeedbackList />;
       case "goals":
         return (
           <GoalsList
-            onBack={() => setView("home")}
             onCreateGoal={() => setView("goal-create")}
             onSelectGoal={handleSelectGoal}
             onAllocation={() => setView("goal-allocation")}
@@ -289,11 +340,7 @@ function App() {
           />
         );
       case "settings":
-        return (
-          <NotificationSettings
-            onBack={() => setView("home")}
-          />
-        );
+        return <SettingsScreen />;
       case "home":
       default:
         if (!budget) {
@@ -304,24 +351,23 @@ function App() {
           <HomeScreen
             budget={budget}
             onEditBudget={() => setView("setup")}
-            onViewFeedback={() => setView("feedback")}
-            onViewGoals={() => setView("goals")}
-            onViewSettings={() => setView("settings")}
           />
         );
     }
   };
 
   return (
-    <>
+    <div className={showBottomNav ? "pb-16" : ""}>
       {renderView()}
-      {/* Show feedback button on home and setup views */}
-      {(view === "home" || view === "setup") && <FeedbackButton />}
+      {/* Bottom navigation */}
+      {showBottomNav && (
+        <BottomNav active={activeNavItem} onNavigate={handleBottomNav} />
+      )}
       {/* Permission prompt overlay */}
       {showPermissionPrompt && (
         <PermissionPrompt onComplete={() => setShowPermissionPrompt(false)} />
       )}
-    </>
+    </div>
   );
 }
 

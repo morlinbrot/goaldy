@@ -1,3 +1,4 @@
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,7 +9,7 @@ import { clearContributionsForGoal, deleteSavingsGoal, getContributionForMonth, 
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeft, Award, CalendarIcon, Check, ChevronDown, ChevronUp, Flame, RotateCcw, Trash2 } from "lucide-react";
+import { Award, CalendarIcon, Check, ChevronDown, ChevronUp, Flame, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MonthlyOverviewChart } from "./MonthlyOverviewChart";
 import { SavingsGoalHeader } from "./SavingsGoalHeader";
@@ -210,35 +211,27 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <h1 className="text-xl font-semibold truncate">{goal.name}</h1>
-        </div>
-        <div className="flex items-center gap-1">
-          {isDebugMode && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowClearConfirm(true)}
-              className="text-muted-foreground hover:text-orange-500"
-              title="Clear all contributions (debug)"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </Button>
-          )}
+      <AppHeader title={goal.name} onBack={onBack}>
+        {isDebugMode && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setShowDeleteConfirm(true)}
-            className="text-muted-foreground hover:text-destructive"
+            onClick={() => setShowClearConfirm(true)}
+            className="text-muted-foreground hover:text-orange-500"
+            title="Clear all contributions (debug)"
           >
-            <Trash2 className="w-5 h-5" />
+            <RotateCcw className="w-5 h-5" />
           </Button>
-        </div>
-      </header>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowDeleteConfirm(true)}
+          className="text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 className="w-5 h-5" />
+        </Button>
+      </AppHeader>
 
       {/* Main content */}
       <div className="flex-1 overflow-auto">

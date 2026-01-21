@@ -1,25 +1,21 @@
-import { Button } from "@/components/ui/button";
 import { useSync } from "@/contexts/SyncContext";
 import { addExpense, deleteExpense, getCategories, getExpensesForMonth, getMonthlySpending } from "@/lib/database";
 import { formatCurrency, type Budget, type Category, type ExpenseWithCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Bell, ChevronDown, ChevronUp, MessageSquare, Settings, Target } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AppHeader } from "./AppHeader";
 import { CategorySelector } from "./CategorySelector";
 import { ExpenseList } from "./ExpenseList";
 import { Numpad } from "./Numpad";
 import { OfflineBanner } from "./OfflineBanner";
-import { SyncIndicator } from "./SyncIndicator";
 
 interface HomeScreenProps {
   budget: Budget;
   onEditBudget: () => void;
-  onViewFeedback: () => void;
-  onViewGoals: () => void;
-  onViewSettings: () => void;
 }
 
-export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals, onViewSettings }: HomeScreenProps) {
+export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
   const { refreshStatus } = useSync();
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -100,24 +96,7 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals, 
       <OfflineBanner />
 
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b">
-        <h1 className="text-xl font-semibold">Goaldy</h1>
-        <div className="flex items-center gap-1">
-          <SyncIndicator />
-          <Button variant="ghost" size="icon" onClick={onViewGoals}>
-            <Target className="w-5 h-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onViewFeedback}>
-            <MessageSquare className="w-5 h-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onViewSettings}>
-            <Bell className="w-5 h-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onEditBudget}>
-            <Settings className="w-5 h-5" />
-          </Button>
-        </div>
-      </header>
+      <AppHeader title="Goaldy" />
 
       {/* Main content */}
       <div className="flex-1 overflow-auto">
@@ -150,9 +129,13 @@ export function HomeScreen({ budget, onEditBudget, onViewFeedback, onViewGoals, 
               style={{ width: `${Math.min(percentUsed * 100, 100)}%` }}
             />
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
+          <button
+            type="button"
+            onClick={onEditBudget}
+            className="text-xs text-muted-foreground mt-1 hover:text-foreground transition-colors"
+          >
             {formatCurrency(totalSpent)} of {formatCurrency(budget.spending_limit ?? budget.total_amount)} spent
-          </p>
+          </button>
         </div>
 
         {/* Quick expense entry */}

@@ -1,3 +1,4 @@
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { createSavingsGoal } from "@/lib/database";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeft, CalendarIcon } from "lucide-react";
+import { CalendarIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface GoalCreationFormProps {
@@ -171,12 +172,7 @@ export function GoalCreationForm({ onGoalCreated, onBack }: GoalCreationFormProp
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center gap-3 p-4 border-b">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <h1 className="text-xl font-semibold">New Savings Goal</h1>
-      </header>
+      <AppHeader title="New Savings Goal" onBack={onBack} />
 
       {/* Form */}
       <div className="flex-1 overflow-auto p-4">

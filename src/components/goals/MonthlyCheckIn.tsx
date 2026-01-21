@@ -1,9 +1,10 @@
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { addContribution, getContributionForMonth, getSavingsGoal } from "@/lib/database";
 import { formatCurrency, type SavingsContribution, type SavingsGoal } from "@/lib/types";
-import { ArrowLeft, Check, Sparkles, X } from "lucide-react";
+import { Check, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Confetti } from "./Confetti";
 
@@ -324,12 +325,7 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
       {step !== 'celebration' && step !== 'encouragement' && (
-        <header className="flex items-center gap-3 p-4 border-b">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <h1 className="text-xl font-semibold">{goal.name}</h1>
-        </header>
+        <AppHeader title={goal.name} onBack={onBack} />
       )}
 
       {renderContent()}

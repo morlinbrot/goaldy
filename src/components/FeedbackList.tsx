@@ -1,14 +1,10 @@
-import { useState, useEffect } from "react";
-import { ArrowLeft, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { getFeedbackNotes, deleteFeedbackNote } from "@/lib/database";
+import { deleteFeedbackNote, getFeedbackNotes } from "@/lib/database";
 import type { FeedbackNote } from "@/lib/types";
+import { Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AppHeader } from "./AppHeader";
 
-interface FeedbackListProps {
-  onBack: () => void;
-}
-
-export function FeedbackList({ onBack }: FeedbackListProps) {
+export function FeedbackList() {
   const [notes, setNotes] = useState<FeedbackNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -49,12 +45,7 @@ export function FeedbackList({ onBack }: FeedbackListProps) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center gap-3 p-4 border-b">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <h1 className="text-xl font-semibold">Feedback Notes</h1>
-      </header>
+      <AppHeader title="Feedback Notes" />
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">

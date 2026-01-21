@@ -1,9 +1,10 @@
+import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getAllSavingsGoalsWithStats, updateSavingsGoal } from "@/lib/database";
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
-import { ArrowLeft, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 interface AllocationViewProps {
@@ -92,20 +93,14 @@ export function AllocationView({ onBack, onSaved }: AllocationViewProps) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <h1 className="text-xl font-semibold">Allocation</h1>
-        </div>
+      <AppHeader title="Allocation" onBack={onBack}>
         {hasChanges && (
           <Button size="sm" onClick={handleSave} disabled={isSaving}>
             <Check className="w-4 h-4 mr-1" />
             {isSaving ? 'Saving...' : 'Save'}
           </Button>
         )}
-      </header>
+      </AppHeader>
 
       {/* Main content */}
       <div className="flex-1 overflow-auto">
