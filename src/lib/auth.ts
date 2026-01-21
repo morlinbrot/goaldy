@@ -19,7 +19,7 @@ async function getAuthDatabase(): Promise<DatabaseInterface> {
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       authDb = await Database.load("sqlite:goaldy.db");
     } else {
-      // Use browser IndexedDB fallback
+      // Use browser sql.js database
       const browserDb = getBrowserDatabase();
       await browserDb.init();
       authDb = browserDb;
@@ -366,21 +366,4 @@ async function associateLocalDataWithUser(userId: string): Promise<void> {
     `UPDATE expenses SET user_id = $1 WHERE user_id IS NULL`,
     [userId]
   );
-}
-
-/**
- * Check if user has completed onboarding (has used the app before).
- */
-export async function hasCompletedOnboarding(): Promise<boolean> {
-  const db = await getAuthDatabase();
-
-  // Check if there's any budget or expense data
-  const budgets = await db.select<{ count: number }[]>(
-    'SELECT COUNT(*) as count FROM budgets'
-  );
-  const expenses = await db.select<{ count: number }[]>(
-    'SELECT COUNT(*) as count FROM expenses WHERE deleted_at IS NULL'
-  );
-
-  return (budgets[0]?.count || 0) > 0 || (expenses[0]?.count || 0) > 0;
 }

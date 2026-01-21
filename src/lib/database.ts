@@ -30,21 +30,38 @@ async function queueChange(tableName: string, recordId: string, operation: 'inse
 }
 
 let db: DatabaseInterface | null = null;
+let dbInitPromise: Promise<DatabaseInterface> | null = null;
 
 export async function getDatabase(): Promise<DatabaseInterface> {
-  if (!db) {
-    if (isTauri()) {
-      // Use Tauri SQLite plugin
-      const Database = (await import("@tauri-apps/plugin-sql")).default;
-      db = await Database.load("sqlite:goaldy.db");
-    } else {
-      // Use browser IndexedDB fallback
-      const browserDb = getBrowserDatabase();
-      await browserDb.init();
-      db = browserDb;
-    }
+  // Use a promise to prevent concurrent initialization
+  if (dbInitPromise) {
+    return dbInitPromise;
   }
-  return db;
+
+  if (db) {
+    return db;
+  }
+
+  dbInitPromise = (async () => {
+    if (!db) {
+      if (isTauri()) {
+        // Use Tauri SQLite plugin
+        const Database = (await import("@tauri-apps/plugin-sql")).default;
+        db = await Database.load("sqlite:goaldy.db");
+      } else {
+        // Use browser sql.js database
+        const browserDb = getBrowserDatabase();
+        await browserDb.init();
+        db = browserDb;
+      }
+    }
+
+    return db;
+  })();
+
+  const result = await dbInitPromise;
+  dbInitPromise = null;
+  return result;
 }
 
 // Budget operations
@@ -115,8 +132,132 @@ export async function createOrUpdateBudget(totalAmount: number, spendingLimit?: 
 export async function getCategories(): Promise<Category[]> {
   const database = await getDatabase();
   return database.select<Category[]>(
-    "SELECT * FROM categories WHERE is_hidden = 0 ORDER BY sort_order ASC"
+    "SELECT * FROM categories WHERE is_hidden = 0 AND deleted_at IS NULL ORDER BY sort_order ASC"
   );
+}
+
+export async function createCategory(
+  name: string,
+  icon: string,
+  color: string
+): Promise<Category> {
+  const database = await getDatabase();
+  const id = generateId();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  // Get max sort_order for custom categories
+  const maxOrderResult = await database.select<{ max_order: number | null }[]>(
+    "SELECT MAX(sort_order) as max_order FROM categories WHERE is_custom = 1"
+  );
+  const sortOrder = (maxOrderResult[0]?.max_order || 100) + 1;
+
+  await database.execute(
+    `INSERT INTO categories (id, user_id, name, icon, color, is_custom, is_hidden, sort_order, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, 1, 0, $6, $7, $8)`,
+    [id, userId, name, icon, color, sortOrder, now, now]
+  );
+
+  const category: Category = {
+    id,
+    user_id: userId,
+    name,
+    icon,
+    color,
+    is_custom: 1,
+    is_hidden: 0,
+    sort_order: sortOrder,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  };
+
+  // Queue for sync (only custom categories are synced)
+  if (userId) {
+    await queueChange('categories', id, 'insert', category);
+  }
+
+  return category;
+}
+
+export async function updateCategory(
+  id: string,
+  updates: Partial<Pick<Category, 'name' | 'icon' | 'color' | 'is_hidden' | 'sort_order'>>
+): Promise<void> {
+  const database = await getDatabase();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  const setClauses: string[] = ['updated_at = $1'];
+  const params: (string | number | null)[] = [now];
+  let paramIndex = 2;
+
+  if (updates.name !== undefined) {
+    setClauses.push(`name = $${paramIndex++}`);
+    params.push(updates.name);
+  }
+  if (updates.icon !== undefined) {
+    setClauses.push(`icon = $${paramIndex++}`);
+    params.push(updates.icon);
+  }
+  if (updates.color !== undefined) {
+    setClauses.push(`color = $${paramIndex++}`);
+    params.push(updates.color);
+  }
+  if (updates.is_hidden !== undefined) {
+    setClauses.push(`is_hidden = $${paramIndex++}`);
+    params.push(updates.is_hidden);
+  }
+  if (updates.sort_order !== undefined) {
+    setClauses.push(`sort_order = $${paramIndex++}`);
+    params.push(updates.sort_order);
+  }
+
+  params.push(id);
+
+  await database.execute(
+    `UPDATE categories SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+    params
+  );
+
+  // Queue for sync
+  if (userId) {
+    const result = await database.select<Category[]>(
+      "SELECT * FROM categories WHERE id = $1",
+      [id]
+    );
+    if (result[0] && result[0].is_custom === 1) {
+      await queueChange('categories', id, 'update', result[0]);
+    }
+  }
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const database = await getDatabase();
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  // Check if this is a custom category (only custom categories can be deleted)
+  const result = await database.select<Category[]>(
+    "SELECT * FROM categories WHERE id = $1",
+    [id]
+  );
+  const category = result[0];
+  if (!category || category.is_custom !== 1) {
+    throw new Error('Cannot delete default categories');
+  }
+
+  if (userId) {
+    // Soft delete for authenticated users (for sync)
+    await database.execute(
+      "UPDATE categories SET deleted_at = $1, updated_at = $1 WHERE id = $2",
+      [now, id]
+    );
+    await queueChange('categories', id, 'delete', { id, deleted_at: now, updated_at: now });
+  } else {
+    // Hard delete for offline-only users
+    await database.execute("DELETE FROM categories WHERE id = $1", [id]);
+  }
 }
 
 // Expense operations
@@ -261,25 +402,53 @@ export async function addFeedbackNote(content: string): Promise<FeedbackNote> {
   const database = await getDatabase();
   const id = generateId();
   const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
 
   await database.execute(
-    "INSERT INTO feedback_notes (id, content, created_at) VALUES ($1, $2, $3)",
-    [id, content, now]
+    "INSERT INTO feedback_notes (id, user_id, content, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+    [id, userId, content, now, now]
   );
 
-  return { id, content, created_at: now };
+  const note: FeedbackNote = {
+    id,
+    user_id: userId,
+    content,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  };
+
+  // Queue for sync
+  if (userId) {
+    await queueChange('feedback_notes', id, 'insert', note);
+  }
+
+  return note;
 }
 
 export async function getFeedbackNotes(): Promise<FeedbackNote[]> {
   const database = await getDatabase();
   return database.select<FeedbackNote[]>(
-    "SELECT * FROM feedback_notes ORDER BY created_at DESC"
+    "SELECT * FROM feedback_notes WHERE deleted_at IS NULL ORDER BY created_at DESC"
   );
 }
 
 export async function deleteFeedbackNote(id: string): Promise<void> {
   const database = await getDatabase();
-  await database.execute("DELETE FROM feedback_notes WHERE id = $1", [id]);
+  const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+
+  if (userId) {
+    // Soft delete for authenticated users (for sync)
+    await database.execute(
+      "UPDATE feedback_notes SET deleted_at = $1, updated_at = $1 WHERE id = $2",
+      [now, id]
+    );
+    await queueChange('feedback_notes', id, 'delete', { id, deleted_at: now, updated_at: now });
+  } else {
+    // Hard delete for offline-only users
+    await database.execute("DELETE FROM feedback_notes WHERE id = $1", [id]);
+  }
 }
 
 // Savings Goals operations

@@ -51,32 +51,35 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
   const [testSent, setTestSent] = useState(false);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
-  // Load initial state
-  useEffect(() => {
-    async function load() {
-      // Check permission status
-      const status = await checkNotificationPermission();
-      setPermissionStatus(status);
+  // Load preferences from database (and sync first if online)
+  // This ensures we always have the latest data when opening this view
+  const loadPreferences = useCallback(async () => {
+    // Check permission status
+    const status = await checkNotificationPermission();
+    setPermissionStatus(status);
 
-      // Load preferences
-      try {
-        const preferences = await getNotificationPreferences();
-        setPrefs(preferences);
-      } catch (err) {
-        console.error('Failed to load notification preferences:', err);
-        // Set default preferences so UI can render
-        const now = new Date().toISOString();
-        setPrefs({
-          id: 1,
-          user_id: null,
-          ...DEFAULT_PREFERENCES,
-          created_at: now,
-          updated_at: now,
-        });
-      }
+    // Load preferences from database
+    try {
+      const preferences = await getNotificationPreferences();
+      setPrefs(preferences);
+    } catch (err) {
+      console.error('Failed to load notification preferences:', err);
+      // Set default preferences so UI can render
+      const now = new Date().toISOString();
+      setPrefs({
+        id: 1,
+        user_id: null,
+        ...DEFAULT_PREFERENCES,
+        created_at: now,
+        updated_at: now,
+      });
     }
-    load();
   }, []);
+
+  // Load initial state when component mounts
+  useEffect(() => {
+    loadPreferences();
+  }, [loadPreferences]);
 
   const handleRequestPermission = async () => {
     setIsRequestingPermission(true);

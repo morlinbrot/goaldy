@@ -2,6 +2,7 @@
 
 export interface Category {
   id: string;
+  user_id: string | null;
   name: string;
   icon: string | null;
   color: string | null;
@@ -9,6 +10,8 @@ export interface Category {
   is_hidden: number;
   sort_order: number | null;
   created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface Budget {
@@ -120,8 +123,11 @@ export interface HabitGoalWithStats extends HabitGoal {
 
 export interface FeedbackNote {
   id: string;
+  user_id: string | null;
   content: string;
   created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
 // Utility functions

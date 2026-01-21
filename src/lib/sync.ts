@@ -1,7 +1,7 @@
 import { getCurrentUserId, getFullSession, getLocalAuthState, updateLastSyncAt } from './auth';
 import { getDatabase } from './database';
 import { getSupabase, isSupabaseConfigured } from './supabase';
-import type { Budget, Expense, SavingsContribution, SavingsGoal, SyncOperation, SyncQueueItem, SyncResult, SyncStatus } from './types';
+import type { Budget, Category, Expense, FeedbackNote, HabitGoal, HabitTracking, SavingsContribution, SavingsGoal, SyncOperation, SyncQueueItem, SyncResult, SyncStatus } from './types';
 import { generateId } from './types';
 
 // Define NotificationPreferences interface here to avoid circular dependency with notifications.ts
@@ -20,6 +20,22 @@ interface NotificationPreferencesSync {
   quiet_hours_end: string;
   created_at: string;
   updated_at: string;
+}
+
+// Define ScheduledNotification interface for sync
+interface ScheduledNotificationSync {
+  id: string;
+  user_id: string | null;
+  notification_type: string;
+  goal_id: string | null;
+  title: string;
+  body: string;
+  scheduled_at: string;
+  cron_expression: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
 const MAX_RETRY_ATTEMPTS = 5;
@@ -97,18 +113,26 @@ async function getPendingSyncItems(): Promise<SyncQueueItem[]> {
   if (!userId) return [];
 
   // Order by table priority to respect foreign key dependencies:
-  // 1. savings_goals must sync before savings_contributions (FK dependency)
-  // 2. Then by created_at within each table
+  // 1. categories must sync first (referenced by expenses, habit_goals)
+  // 2. savings_goals must sync before savings_contributions (FK dependency)
+  // 3. habit_goals must sync before habit_tracking (FK dependency)
+  // 4. Then by created_at within each table
   return db.select<SyncQueueItem[]>(
     `SELECT * FROM sync_queue
      WHERE user_id = $1 AND attempts < $2
      ORDER BY
        CASE table_name
-         WHEN 'savings_goals' THEN 1
-         WHEN 'budgets' THEN 2
-         WHEN 'expenses' THEN 3
-         WHEN 'savings_contributions' THEN 4
-         ELSE 5
+         WHEN 'categories' THEN 1
+         WHEN 'savings_goals' THEN 2
+         WHEN 'habit_goals' THEN 3
+         WHEN 'budgets' THEN 4
+         WHEN 'expenses' THEN 5
+         WHEN 'savings_contributions' THEN 6
+         WHEN 'habit_tracking' THEN 7
+         WHEN 'feedback_notes' THEN 8
+         WHEN 'notification_preferences' THEN 9
+         WHEN 'scheduled_notifications' THEN 10
+         ELSE 11
        END,
        created_at ASC`,
     [userId, MAX_RETRY_ATTEMPTS]
@@ -234,6 +258,16 @@ export async function pushChanges(): Promise<SyncResult> {
         await pushSavingsContribution(supabase, item, payload);
       } else if (item.table_name === 'notification_preferences') {
         await pushNotificationPreferences(supabase, item, payload);
+      } else if (item.table_name === 'habit_goals') {
+        await pushHabitGoal(supabase, item, payload);
+      } else if (item.table_name === 'habit_tracking') {
+        await pushHabitTracking(supabase, item, payload);
+      } else if (item.table_name === 'categories') {
+        await pushCategory(supabase, item, payload);
+      } else if (item.table_name === 'feedback_notes') {
+        await pushFeedbackNote(supabase, item, payload);
+      } else if (item.table_name === 'scheduled_notifications') {
+        await pushScheduledNotification(supabase, item, payload);
       }
 
       await removeSyncItem(item.id);
@@ -465,6 +499,233 @@ async function pushNotificationPreferences(
 }
 
 /**
+ * Push a habit goal to Supabase.
+ */
+async function pushHabitGoal(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<HabitGoal>
+): Promise<void> {
+  if (!supabase) return;
+
+  if (item.operation === 'delete') {
+    // Soft delete
+    const { error } = await supabase
+      .from('habit_goals')
+      .update({
+        deleted_at: payload.deleted_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+      })
+      .eq('id', item.record_id)
+      .eq('user_id', item.user_id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    // Insert or update
+    const { error } = await supabase
+      .from('habit_goals')
+      .upsert({
+        id: payload.id,
+        user_id: item.user_id,
+        name: payload.name,
+        category_id: payload.category_id,
+        rule_type: payload.rule_type,
+        rule_value: payload.rule_value,
+        duration_months: payload.duration_months,
+        start_date: payload.start_date,
+        privacy_level: payload.privacy_level,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at,
+        deleted_at: payload.deleted_at,
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) throw new Error(error.message);
+  }
+}
+
+/**
+ * Push a habit tracking record to Supabase.
+ */
+async function pushHabitTracking(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<HabitTracking>
+): Promise<void> {
+  if (!supabase) return;
+
+  if (item.operation === 'delete') {
+    // Soft delete
+    const { error } = await supabase
+      .from('habit_tracking')
+      .update({
+        deleted_at: payload.deleted_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+      })
+      .eq('id', item.record_id)
+      .eq('user_id', item.user_id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    // Insert or update
+    const { error } = await supabase
+      .from('habit_tracking')
+      .upsert({
+        id: payload.id,
+        user_id: item.user_id,
+        habit_goal_id: payload.habit_goal_id,
+        month: payload.month,
+        spent_amount: payload.spent_amount,
+        target_amount: payload.target_amount,
+        is_compliant: payload.is_compliant,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at,
+        deleted_at: payload.deleted_at,
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) throw new Error(error.message);
+  }
+}
+
+/**
+ * Push a category to Supabase.
+ * Only custom categories (user-created) are synced.
+ */
+async function pushCategory(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<Category>
+): Promise<void> {
+  if (!supabase) return;
+
+  if (item.operation === 'delete') {
+    // Soft delete
+    const { error } = await supabase
+      .from('categories')
+      .update({
+        deleted_at: payload.deleted_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+      })
+      .eq('id', item.record_id)
+      .eq('user_id', item.user_id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    // Insert or update
+    const { error } = await supabase
+      .from('categories')
+      .upsert({
+        id: payload.id,
+        user_id: item.user_id,
+        name: payload.name,
+        icon: payload.icon,
+        color: payload.color,
+        is_custom: payload.is_custom,
+        is_hidden: payload.is_hidden,
+        sort_order: payload.sort_order,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at,
+        deleted_at: payload.deleted_at,
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) throw new Error(error.message);
+  }
+}
+
+/**
+ * Push a feedback note to Supabase.
+ */
+async function pushFeedbackNote(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<FeedbackNote & { user_id: string; updated_at: string; deleted_at: string | null }>
+): Promise<void> {
+  if (!supabase) return;
+
+  if (item.operation === 'delete') {
+    // Soft delete
+    const { error } = await supabase
+      .from('feedback_notes')
+      .update({
+        deleted_at: payload.deleted_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+      })
+      .eq('id', item.record_id)
+      .eq('user_id', item.user_id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    // Insert or update
+    const { error } = await supabase
+      .from('feedback_notes')
+      .upsert({
+        id: payload.id,
+        user_id: item.user_id,
+        content: payload.content,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+        deleted_at: payload.deleted_at,
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) throw new Error(error.message);
+  }
+}
+
+/**
+ * Push a scheduled notification to Supabase.
+ */
+async function pushScheduledNotification(
+  supabase: ReturnType<typeof getSupabase>,
+  item: SyncQueueItem,
+  payload: Partial<ScheduledNotificationSync>
+): Promise<void> {
+  if (!supabase) return;
+
+  if (item.operation === 'delete') {
+    // Soft delete
+    const { error } = await supabase
+      .from('scheduled_notifications')
+      .update({
+        deleted_at: payload.deleted_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+      })
+      .eq('id', item.record_id)
+      .eq('user_id', item.user_id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    // Insert or update
+    const { error } = await supabase
+      .from('scheduled_notifications')
+      .upsert({
+        id: payload.id,
+        user_id: item.user_id,
+        notification_type: payload.notification_type,
+        goal_id: payload.goal_id,
+        title: payload.title,
+        body: payload.body,
+        scheduled_at: payload.scheduled_at,
+        cron_expression: payload.cron_expression,
+        sent_at: payload.sent_at,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at || new Date().toISOString(),
+        deleted_at: payload.deleted_at,
+      }, {
+        onConflict: 'id',
+      });
+
+    if (error) throw new Error(error.message);
+  }
+}
+
+/**
  * Pull remote changes from Supabase.
  */
 export async function pullChanges(): Promise<SyncResult> {
@@ -596,6 +857,106 @@ export async function pullChanges(): Promise<SyncResult> {
       // Merge notification preferences
       for (const remotePrefs of remoteNotificationPrefs || []) {
         const merged = await mergeNotificationPreferences(db, remotePrefs, userId);
+        if (merged) result.pulled++;
+      }
+    }
+
+    // Pull habit goals
+    let habitGoalsQuery = supabase
+      .from('habit_goals')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      habitGoalsQuery = habitGoalsQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteHabitGoals, error: habitGoalsError } = await habitGoalsQuery;
+    if (habitGoalsError) {
+      console.warn('Failed to pull habit goals:', habitGoalsError.message);
+    } else {
+      for (const remoteHabitGoal of remoteHabitGoals || []) {
+        const merged = await mergeHabitGoal(db, remoteHabitGoal, userId);
+        if (merged) result.pulled++;
+      }
+    }
+
+    // Pull habit tracking
+    let habitTrackingQuery = supabase
+      .from('habit_tracking')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      habitTrackingQuery = habitTrackingQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteHabitTracking, error: habitTrackingError } = await habitTrackingQuery;
+    if (habitTrackingError) {
+      console.warn('Failed to pull habit tracking:', habitTrackingError.message);
+    } else {
+      for (const remoteTracking of remoteHabitTracking || []) {
+        const merged = await mergeHabitTracking(db, remoteTracking, userId);
+        if (merged) result.pulled++;
+      }
+    }
+
+    // Pull categories (only user's custom categories, not default ones)
+    let categoriesQuery = supabase
+      .from('categories')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      categoriesQuery = categoriesQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteCategories, error: categoriesError } = await categoriesQuery;
+    if (categoriesError) {
+      console.warn('Failed to pull categories:', categoriesError.message);
+    } else {
+      for (const remoteCategory of remoteCategories || []) {
+        const merged = await mergeCategory(db, remoteCategory, userId);
+        if (merged) result.pulled++;
+      }
+    }
+
+    // Pull feedback notes
+    let feedbackNotesQuery = supabase
+      .from('feedback_notes')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      feedbackNotesQuery = feedbackNotesQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteFeedbackNotes, error: feedbackNotesError } = await feedbackNotesQuery;
+    if (feedbackNotesError) {
+      console.warn('Failed to pull feedback notes:', feedbackNotesError.message);
+    } else {
+      for (const remoteNote of remoteFeedbackNotes || []) {
+        const merged = await mergeFeedbackNote(db, remoteNote, userId);
+        if (merged) result.pulled++;
+      }
+    }
+
+    // Pull scheduled notifications
+    let scheduledNotificationsQuery = supabase
+      .from('scheduled_notifications')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (lastSyncAt) {
+      scheduledNotificationsQuery = scheduledNotificationsQuery.gt('updated_at', lastSyncAt);
+    }
+
+    const { data: remoteScheduledNotifications, error: scheduledNotificationsError } = await scheduledNotificationsQuery;
+    if (scheduledNotificationsError) {
+      console.warn('Failed to pull scheduled notifications:', scheduledNotificationsError.message);
+    } else {
+      for (const remoteNotification of remoteScheduledNotifications || []) {
+        const merged = await mergeScheduledNotification(db, remoteNotification, userId);
         if (merged) result.pulled++;
       }
     }
@@ -950,6 +1311,327 @@ async function mergeNotificationPreferences(
           remote.quiet_hours_end || '08:00',
           remote.created_at || now,
           remote.updated_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge a remote habit goal with local data (last write wins).
+ */
+async function mergeHabitGoal(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  const localResult = await db.select<HabitGoal[]>(
+    `SELECT * FROM habit_goals WHERE id = $1`,
+    [remote.id]
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local ? new Date(local.updated_at).getTime() : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE habit_goals SET
+          name = $1, category_id = $2, rule_type = $3, rule_value = $4,
+          duration_months = $5, start_date = $6, privacy_level = $7,
+          updated_at = $8, deleted_at = $9, user_id = $10
+         WHERE id = $11`,
+        [
+          remote.name,
+          remote.category_id,
+          remote.rule_type,
+          remote.rule_value,
+          remote.duration_months,
+          remote.start_date,
+          remote.privacy_level,
+          remote.updated_at,
+          remote.deleted_at,
+          userId,
+          remote.id,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO habit_goals (id, user_id, name, category_id, rule_type, rule_value, duration_months, start_date, privacy_level, created_at, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          remote.id,
+          userId,
+          remote.name,
+          remote.category_id,
+          remote.rule_type,
+          remote.rule_value,
+          remote.duration_months,
+          remote.start_date,
+          remote.privacy_level,
+          remote.created_at,
+          remote.updated_at,
+          remote.deleted_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge a remote habit tracking record with local data (last write wins).
+ */
+async function mergeHabitTracking(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  const localResult = await db.select<HabitTracking[]>(
+    `SELECT * FROM habit_tracking WHERE id = $1`,
+    [remote.id]
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local ? new Date(local.updated_at).getTime() : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE habit_tracking SET
+          habit_goal_id = $1, month = $2, spent_amount = $3, target_amount = $4,
+          is_compliant = $5, updated_at = $6, deleted_at = $7, user_id = $8
+         WHERE id = $9`,
+        [
+          remote.habit_goal_id,
+          remote.month,
+          remote.spent_amount,
+          remote.target_amount,
+          remote.is_compliant,
+          remote.updated_at,
+          remote.deleted_at,
+          userId,
+          remote.id,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO habit_tracking (id, user_id, habit_goal_id, month, spent_amount, target_amount, is_compliant, created_at, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          remote.id,
+          userId,
+          remote.habit_goal_id,
+          remote.month,
+          remote.spent_amount,
+          remote.target_amount,
+          remote.is_compliant,
+          remote.created_at,
+          remote.updated_at,
+          remote.deleted_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge a remote category with local data (last write wins).
+ * Only syncs user-created categories (not default ones).
+ */
+async function mergeCategory(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  const localResult = await db.select<Category[]>(
+    `SELECT * FROM categories WHERE id = $1`,
+    [remote.id]
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local ? new Date(local.updated_at).getTime() : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE categories SET
+          name = $1, icon = $2, color = $3, is_custom = $4, is_hidden = $5,
+          sort_order = $6, updated_at = $7, deleted_at = $8, user_id = $9
+         WHERE id = $10`,
+        [
+          remote.name,
+          remote.icon,
+          remote.color,
+          remote.is_custom,
+          remote.is_hidden,
+          remote.sort_order,
+          remote.updated_at,
+          remote.deleted_at,
+          userId,
+          remote.id,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO categories (id, user_id, name, icon, color, is_custom, is_hidden, sort_order, created_at, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          remote.id,
+          userId,
+          remote.name,
+          remote.icon,
+          remote.color,
+          remote.is_custom,
+          remote.is_hidden,
+          remote.sort_order,
+          remote.created_at,
+          remote.updated_at,
+          remote.deleted_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge a remote feedback note with local data (last write wins).
+ */
+async function mergeFeedbackNote(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  const localResult = await db.select<FeedbackNote[]>(
+    `SELECT * FROM feedback_notes WHERE id = $1`,
+    [remote.id]
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local && (local as unknown as { updated_at: string }).updated_at
+    ? new Date((local as unknown as { updated_at: string }).updated_at).getTime()
+    : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE feedback_notes SET
+          content = $1, updated_at = $2, deleted_at = $3, user_id = $4
+         WHERE id = $5`,
+        [
+          remote.content,
+          remote.updated_at,
+          remote.deleted_at,
+          userId,
+          remote.id,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO feedback_notes (id, user_id, content, created_at, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          remote.id,
+          userId,
+          remote.content,
+          remote.created_at,
+          remote.updated_at,
+          remote.deleted_at,
+        ]
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge a remote scheduled notification with local data (last write wins).
+ */
+async function mergeScheduledNotification(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  remote: Record<string, unknown>,
+  userId: string
+): Promise<boolean> {
+  const localResult = await db.select<ScheduledNotificationSync[]>(
+    `SELECT * FROM scheduled_notifications WHERE id = $1`,
+    [remote.id]
+  );
+  const local = localResult[0];
+
+  const remoteUpdatedAt = new Date(remote.updated_at as string).getTime();
+  const localUpdatedAt = local ? new Date(local.updated_at).getTime() : 0;
+
+  // Remote is newer or doesn't exist locally
+  if (!local || remoteUpdatedAt > localUpdatedAt) {
+    if (local) {
+      // Update existing
+      await db.execute(
+        `UPDATE scheduled_notifications SET
+          notification_type = $1, goal_id = $2, title = $3, body = $4,
+          scheduled_at = $5, cron_expression = $6, sent_at = $7,
+          updated_at = $8, deleted_at = $9, user_id = $10
+         WHERE id = $11`,
+        [
+          remote.notification_type,
+          remote.goal_id,
+          remote.title,
+          remote.body,
+          remote.scheduled_at,
+          remote.cron_expression,
+          remote.sent_at,
+          remote.updated_at,
+          remote.deleted_at,
+          userId,
+          remote.id,
+        ]
+      );
+    } else {
+      // Insert new
+      await db.execute(
+        `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, sent_at, created_at, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          remote.id,
+          userId,
+          remote.notification_type,
+          remote.goal_id,
+          remote.title,
+          remote.body,
+          remote.scheduled_at,
+          remote.cron_expression,
+          remote.sent_at,
+          remote.created_at,
+          remote.updated_at,
+          remote.deleted_at,
         ]
       );
     }

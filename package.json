@@ -30,12 +30,14 @@
     "react-confetti-explosion": "^3.0.3",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.1.0",
+    "sql.js": "^1.13.0",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.4.23",
     "postcss": "^8.5.6",

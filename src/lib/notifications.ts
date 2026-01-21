@@ -94,7 +94,7 @@ async function getNotificationDatabase(): Promise<DatabaseInterface> {
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       notifDb = await Database.load("sqlite:goaldy.db");
     } else {
-      // Use browser IndexedDB fallback
+      // Use browser sql.js database
       const browserDb = getBrowserDatabase();
       await browserDb.init();
       notifDb = browserDb;
@@ -240,9 +240,9 @@ export async function scheduleNotification(
   console.log(`[Notifications] Scheduling "${title}" with cron "${cronExpression}", next: ${nextExecution.toISOString()}`);
 
   await db.execute(
-    `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [id, userId, type, goalId || null, title, body, nextExecution.toISOString(), cronExpression, nowStr]
+    `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [id, userId, type, goalId || null, title, body, nextExecution.toISOString(), cronExpression, nowStr, nowStr]
   );
 
   return id;
@@ -486,8 +486,8 @@ export async function checkAndSendDueNotifications(): Promise<void> {
         if (nextExecution) {
           console.log(`[Notifications] Next occurrence: ${nextExecution.toISOString()}`);
           await db.execute(
-            `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
               generateId(),
               notification.user_id,
@@ -497,6 +497,7 @@ export async function checkAndSendDueNotifications(): Promise<void> {
               notification.body,
               nextExecution.toISOString(),
               notification.cron_expression,
+              nowStr,
               nowStr
             ]
           );

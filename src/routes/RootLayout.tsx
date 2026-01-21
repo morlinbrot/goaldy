@@ -2,18 +2,17 @@ import { BottomNav } from "@/components/BottomNav";
 import { PermissionPrompt } from "@/components/PermissionPrompt";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
-import { hasCompletedOnboarding } from "@/lib/auth";
 import { getCurrentBudget } from "@/lib/database";
 import { initializeNotifications } from "@/lib/notification-scheduler";
+import { fullSync } from "@/lib/sync";
 import type { Budget } from "@/lib/types";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 interface AppState {
   budget: Budget | null;
   setBudget: (budget: Budget | null) => void;
-  isLoadingBudget: boolean;
 }
 
 const AppStateContext = createContext<AppState | null>(null);
@@ -43,71 +42,78 @@ export function RootLayout({ children }: RootLayoutProps) {
   } = useAuth();
 
   const [budget, setBudget] = useState<Budget | null>(null);
-  const [isLoadingBudget, setIsLoadingBudget] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Load budget when authenticated or skipped auth
-  const loadBudget = useCallback(async () => {
-    setIsLoadingBudget(true);
-    try {
-      const currentBudget = await getCurrentBudget();
-      setBudget(currentBudget);
+  // Determine initial view based on auth state - runs only once on mount
+  useEffect(() => {
+    // Skip if already initialized
+    if (isInitialized) return;
 
-      if (currentBudget) {
-        // Only navigate if we're on auth routes or just initialized
-        if (location.pathname === "/login" || location.pathname === "/signup") {
-          navigate({ to: "/" });
+    // Wait for auth to finish loading
+    if (authLoading) return;
+
+    async function initializeApp() {
+      // If Supabase is not configured, skip auth automatically and continue
+      if (!isConfigured && !hasSkippedAuth) {
+        console.log('[App] Supabase not configured, skipping auth');
+        skipAuth();
+        // Don't return - skipAuth will trigger a re-render with hasSkippedAuth=true
+        return;
+      }
+
+      // If not authenticated and hasn't skipped, show login
+      if (!isAuthenticated && !hasSkippedAuth) {
+        navigate({ to: "/login" });
+        setIsInitialized(true);
+        return;
+      }
+
+      // At this point we're either authenticated or skipped auth
+      // If authenticated, do initial sync to get data from other devices
+      if (isAuthenticated) {
+        try {
+          console.log('[App] Running initial sync...');
+          await fullSync();
+          console.log('[App] Initial sync complete');
+        } catch (err) {
+          console.warn('[App] Failed to sync during init:', err);
+          // Continue anyway - we'll check local budget
         }
-        // Show permission prompt when user has a budget (not first-time setup)
-        setShowPermissionPrompt(true);
-      } else {
+      }
+
+      // Load budget from local database
+      try {
+        const currentBudget = await getCurrentBudget();
+        setBudget(currentBudget);
+
+        if (currentBudget && currentBudget.total_amount > 0) {
+          // User has a budget, show main app
+          setShowPermissionPrompt(true);
+          // Navigate to home if on auth routes
+          if (location.pathname === "/login" || location.pathname === "/signup") {
+            navigate({ to: "/" });
+          }
+        } else {
+          // No budget, show setup
+          navigate({ to: "/setup" });
+        }
+
+        // Initialize notifications after app is ready
+        initializeNotifications().catch(err => {
+          console.error('Failed to initialize notifications:', err);
+        });
+      } catch (error) {
+        console.error('Failed to load budget:', error);
         navigate({ to: "/setup" });
       }
 
-      // Initialize notifications after app is ready
-      initializeNotifications().catch(err => {
-        console.error('Failed to initialize notifications:', err);
-      });
-    } catch (error) {
-      console.error('Failed to load budget:', error);
-      navigate({ to: "/setup" });
-    } finally {
-      setIsLoadingBudget(false);
       setIsInitialized(true);
     }
-  }, [navigate, location.pathname]);
 
-  // Determine initial view based on auth state
-  useEffect(() => {
-    async function determineView() {
-      if (authLoading) {
-        return;
-      }
-
-      // If authenticated or skipped auth, load budget
-      if (isAuthenticated || hasSkippedAuth) {
-        await loadBudget();
-        return;
-      }
-
-      // If Supabase is not configured, skip auth automatically
-      if (!isConfigured) {
-        console.log('[App] Supabase not configured, skipping auth');
-        skipAuth();
-        return;
-      }
-
-      // Check if user has used the app before
-      console.log('[App] Checking onboarding status');
-      const hasOnboarded = await hasCompletedOnboarding();
-      console.log('[App] hasOnboarded:', hasOnboarded);
-      // Show login for both new and returning users
-      navigate({ to: "/login" });
-      setIsInitialized(true);
-    }
-    determineView();
-  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, skipAuth, loadBudget, navigate]);
+    initializeApp();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured]);
 
   // Back navigation handler using router history
   const handleBack = useMemo(() => {
@@ -128,8 +134,8 @@ export function RootLayout({ children }: RootLayoutProps) {
                         !location.pathname.startsWith("/signup") &&
                         isInitialized;
 
-  // Show loading screen while checking auth or loading budget
-  if (authLoading || isLoadingBudget || !isInitialized) {
+  // Show loading screen only during initial auth check
+  if (authLoading || !isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
@@ -140,7 +146,6 @@ export function RootLayout({ children }: RootLayoutProps) {
   const appState: AppState = {
     budget,
     setBudget,
-    isLoadingBudget,
   };
 
   return (
