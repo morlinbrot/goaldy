@@ -361,6 +361,20 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 ---
 
+## Technical Improvements
+
+### Deep Linking for Notification Actions
+
+Implement Tauri deep linking (`tauri-plugin-deep-link`) to handle notification taps and navigate to specific screens. This enables the notification splash screen feature where tapping a notification opens the app to a contextual view showing the notification message with celebration animations for milestones.
+
+---
+
+### TanStack Router Integration
+
+Replace the current manual view state management with TanStack Router for proper client-side routing. This provides URL-based navigation, browser history support, type-safe routes, and better code organization. All existing views (home, goals, settings, achievements, etc.) should be migrated to router-based routes.
+
+---
+
 ## Future Considerations (Post-Launch)
 
 - **Bank integration**: Evaluate German/EU providers (Tink, Finleap Connect)
