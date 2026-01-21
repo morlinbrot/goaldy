@@ -1,11 +1,13 @@
-import {
-    isPermissionGranted,
-    requestPermission,
-    sendNotification,
-} from '@tauri-apps/plugin-notification';
-import Database from "@tauri-apps/plugin-sql";
+import { getBrowserDatabase } from './browser-database';
 import { getNextExecutionTime } from './cron';
+import { isTauri } from './platform';
 import { generateId } from './types';
+
+// Database interface that both Tauri SQLite and BrowserDatabase implement
+interface DatabaseInterface {
+  execute(query: string, params?: unknown[]): Promise<{ rowsAffected: number }>;
+  select<T>(query: string, params?: unknown[]): Promise<T>;
+}
 
 // Notification types
 export type NotificationType = 'monthly_checkin' | 'progress_update' | 'why_reminder';
@@ -83,11 +85,20 @@ export const DEFAULT_PREFERENCES: Omit<NotificationPreferences, 'id' | 'user_id'
 };
 
 // Database instance
-let notifDb: Database | null = null;
+let notifDb: DatabaseInterface | null = null;
 
-async function getNotificationDatabase(): Promise<Database> {
+async function getNotificationDatabase(): Promise<DatabaseInterface> {
   if (!notifDb) {
-    notifDb = await Database.load("sqlite:goaldy.db");
+    if (isTauri()) {
+      // Use Tauri SQLite plugin
+      const Database = (await import("@tauri-apps/plugin-sql")).default;
+      notifDb = await Database.load("sqlite:goaldy.db");
+    } else {
+      // Use browser IndexedDB fallback
+      const browserDb = getBrowserDatabase();
+      await browserDb.init();
+      notifDb = browserDb;
+    }
   }
   return notifDb;
 }
@@ -119,12 +130,27 @@ export type PermissionStatus = 'granted' | 'denied' | 'unavailable';
  * Returns 'unavailable' if the notification system cannot be accessed.
  */
 export async function checkNotificationPermission(): Promise<PermissionStatus> {
-  try {
-    const granted = await isPermissionGranted();
-    return granted ? 'granted' : 'denied';
-  } catch (error) {
-    console.error('Failed to check notification permission:', error);
-    return 'unavailable';
+  if (isTauri()) {
+    try {
+      const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
+      const granted = await isPermissionGranted();
+      return granted ? 'granted' : 'denied';
+    } catch (error) {
+      console.error('Failed to check notification permission:', error);
+      return 'unavailable';
+    }
+  } else {
+    // Browser mode - check Web Notifications API
+    if (!('Notification' in window)) {
+      return 'unavailable';
+    }
+    if (Notification.permission === 'granted') {
+      return 'granted';
+    }
+    if (Notification.permission === 'denied') {
+      return 'denied';
+    }
+    return 'denied'; // 'default' state - not yet requested
   }
 }
 
@@ -133,12 +159,27 @@ export async function checkNotificationPermission(): Promise<PermissionStatus> {
  * Returns 'unavailable' if the notification system cannot be accessed.
  */
 export async function requestNotificationPermission(): Promise<PermissionStatus> {
-  try {
-    const permission = await requestPermission();
-    return permission === 'granted' ? 'granted' : 'denied';
-  } catch (error) {
-    console.error('Failed to request notification permission:', error);
-    return 'unavailable';
+  if (isTauri()) {
+    try {
+      const { requestPermission } = await import('@tauri-apps/plugin-notification');
+      const permission = await requestPermission();
+      return permission === 'granted' ? 'granted' : 'denied';
+    } catch (error) {
+      console.error('Failed to request notification permission:', error);
+      return 'unavailable';
+    }
+  } else {
+    // Browser mode - use Web Notifications API
+    if (!('Notification' in window)) {
+      return 'unavailable';
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      return permission === 'granted' ? 'granted' : 'denied';
+    } catch (error) {
+      console.error('Failed to request notification permission:', error);
+      return 'unavailable';
+    }
   }
 }
 
@@ -152,11 +193,22 @@ export async function showNotification(title: string, body: string): Promise<voi
     return;
   }
 
-  try {
-    await sendNotification({ title, body });
-    console.log(`[Notifications] Sent: "${title}"`);
-  } catch (error) {
-    console.error('Failed to send notification:', error);
+  if (isTauri()) {
+    try {
+      const { sendNotification } = await import('@tauri-apps/plugin-notification');
+      await sendNotification({ title, body });
+      console.log(`[Notifications] Sent: "${title}"`);
+    } catch (error) {
+      console.error('Failed to send notification:', error);
+    }
+  } else {
+    // Browser mode - use Web Notifications API
+    try {
+      new Notification(title, { body });
+      console.log(`[Notifications] Sent: "${title}"`);
+    } catch (error) {
+      console.error('Failed to send notification:', error);
+    }
   }
 }
 

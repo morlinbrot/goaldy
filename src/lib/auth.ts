@@ -1,13 +1,29 @@
-import Database from "@tauri-apps/plugin-sql";
+import { getBrowserDatabase } from './browser-database';
+import { isTauri } from './platform';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 import type { AuthSession, AuthState, LocalAuthState } from './types';
 
-// Local database instance for auth (avoids circular dependency with database.ts)
-let authDb: Database | null = null;
+// Database interface that both Tauri SQLite and BrowserDatabase implement
+interface DatabaseInterface {
+  execute(query: string, params?: unknown[]): Promise<{ rowsAffected: number }>;
+  select<T>(query: string, params?: unknown[]): Promise<T>;
+}
 
-async function getAuthDatabase(): Promise<Database> {
+// Local database instance for auth (avoids circular dependency with database.ts)
+let authDb: DatabaseInterface | null = null;
+
+async function getAuthDatabase(): Promise<DatabaseInterface> {
   if (!authDb) {
-    authDb = await Database.load("sqlite:goaldy.db");
+    if (isTauri()) {
+      // Use Tauri SQLite plugin
+      const Database = (await import("@tauri-apps/plugin-sql")).default;
+      authDb = await Database.load("sqlite:goaldy.db");
+    } else {
+      // Use browser IndexedDB fallback
+      const browserDb = getBrowserDatabase();
+      await browserDb.init();
+      authDb = browserDb;
+    }
   }
   return authDb;
 }

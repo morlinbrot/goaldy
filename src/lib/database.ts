@@ -1,6 +1,13 @@
-import Database from "@tauri-apps/plugin-sql";
+import { getBrowserDatabase } from "./browser-database";
+import { isTauri } from "./platform";
 import type { Budget, Category, Expense, ExpenseWithCategory, FeedbackNote, SavingsContribution, SavingsGoal, SavingsGoalWithStats } from "./types";
 import { generateId, getCurrentMonth } from "./types";
+
+// Database interface that both Tauri SQLite and BrowserDatabase implement
+interface DatabaseInterface {
+  execute(query: string, params?: unknown[]): Promise<{ rowsAffected: number }>;
+  select<T>(query: string, params?: unknown[]): Promise<T>;
+}
 
 // Lazy imports to avoid circular dependencies
 let _getCurrentUserId: (() => Promise<string | null>) | null = null;
@@ -22,11 +29,20 @@ async function queueChange(tableName: string, recordId: string, operation: 'inse
   return _queueChange(tableName, recordId, operation, payload);
 }
 
-let db: Database | null = null;
+let db: DatabaseInterface | null = null;
 
-export async function getDatabase(): Promise<Database> {
+export async function getDatabase(): Promise<DatabaseInterface> {
   if (!db) {
-    db = await Database.load("sqlite:goaldy.db");
+    if (isTauri()) {
+      // Use Tauri SQLite plugin
+      const Database = (await import("@tauri-apps/plugin-sql")).default;
+      db = await Database.load("sqlite:goaldy.db");
+    } else {
+      // Use browser IndexedDB fallback
+      const browserDb = getBrowserDatabase();
+      await browserDb.init();
+      db = browserDb;
+    }
   }
   return db;
 }
