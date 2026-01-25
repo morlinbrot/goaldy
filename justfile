@@ -19,4 +19,4 @@ db:
     supabase db push --db-url $DATABASE_URL
 
 del:
-    rm -f "~/Library/Application Support/app.goaldy.budget/goaldy.db" && echo "Database deleted successfully"
+    rm -f ~/Library/Application\ Support/app.goaldy.budget/goaldy.db && echo "Database deleted successfully"

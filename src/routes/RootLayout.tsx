@@ -40,12 +40,31 @@ export function RootLayout({ children }: RootLayoutProps) {
     isConfigured,
     hasSkippedAuth,
   } = useAuth();
-  const { sync } = useSync();
+  const { isReady: isSyncReady, hasCompletedInitialSync } = useSync();
   const budgetsRepo = useBudgetsRepository();
 
   const [budget, setBudget] = useState<Budget | null>(null);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Subscribe to budget repository changes for sync updates
+  useEffect(() => {
+    const loadCurrentBudget = async () => {
+      try {
+        const currentBudget = await budgetsRepo.getCurrentBudget();
+        setBudget(currentBudget);
+      } catch (error) {
+        console.error('Failed to reload budget:', error);
+      }
+    };
+
+    const unsubscribe = budgetsRepo.subscribe(() => {
+      // Reload current budget when any budget data changes
+      loadCurrentBudget();
+    });
+
+    return unsubscribe;
+  }, [budgetsRepo]);
 
   // Determine initial view based on auth state - runs only once on mount
   useEffect(() => {
@@ -54,6 +73,12 @@ export function RootLayout({ children }: RootLayoutProps) {
 
     // Wait for auth to finish loading
     if (authLoading) return;
+
+    // Wait for sync service to be ready (repositories initialized)
+    if (!isSyncReady) {
+      console.log('[App] Waiting for sync service to be ready...');
+      return;
+    }
 
     async function initializeApp() {
       // If Supabase is not configured, skip auth automatically and continue
@@ -72,32 +97,32 @@ export function RootLayout({ children }: RootLayoutProps) {
       }
 
       // At this point we're either authenticated or skipped auth
-      // If authenticated, do initial sync to get data from other devices
-      if (isAuthenticated) {
-        try {
-          console.log('[App] Running initial sync...');
-          await sync();
-          console.log('[App] Initial sync complete');
-        } catch (err) {
-          console.warn('[App] Failed to sync during init:', err);
-          // Continue anyway - we'll check local budget
-        }
+      // If authenticated, wait for the initial sync to complete
+      // This is critical for fresh installs - we need to pull remote data first
+      if (isAuthenticated && !hasCompletedInitialSync) {
+        console.log('[App] Waiting for initial sync to complete...');
+        return; // Will re-run when hasCompletedInitialSync becomes true
       }
 
-      // Load budget from local database
+      console.log('[App] Initial sync completed, checking for budget...');
+
+      // Load budget from local database (which now includes any synced remote data)
       try {
         const currentBudget = await budgetsRepo.getCurrentBudget();
+        console.log('[App] Current budget after sync:', currentBudget);
         setBudget(currentBudget);
 
         if (currentBudget && currentBudget.total_amount > 0) {
           // User has a budget, show main app
+          console.log('[App] Budget found, showing main app');
           setShowPermissionPrompt(true);
           // Navigate to home if on auth routes
           if (location.pathname === "/login" || location.pathname === "/signup") {
             navigate({ to: "/" });
           }
         } else {
-          // No budget, show setup
+          // No budget locally or remotely, show setup
+          console.log('[App] No budget found, showing setup');
           navigate({ to: "/setup" });
         }
 
@@ -115,7 +140,7 @@ export function RootLayout({ children }: RootLayoutProps) {
 
     initializeApp();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured]);
+  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, isSyncReady, hasCompletedInitialSync]);
 
   // Back navigation handler using router history
   const handleBack = useMemo(() => {

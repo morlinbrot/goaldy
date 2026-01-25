@@ -152,7 +152,10 @@ export class SyncService {
    * Perform a full sync: pull then push.
    */
   async fullSync(): Promise<SyncResult> {
+    console.log('[SyncService] fullSync called');
+
     if (this.isSyncingInner) {
+      console.log('[SyncService] Sync already in progress, skipping');
       return {
         success: false,
         pushed: 0,
@@ -163,6 +166,7 @@ export class SyncService {
     }
 
     if (!this.canSync()) {
+      console.log('[SyncService] Cannot sync - offline or not configured');
       return {
         success: true,
         pushed: 0,
@@ -185,7 +189,9 @@ export class SyncService {
 
     try {
       // Pull first (get remote changes)
+      console.log('[SyncService] Starting pull...');
       const pullResult = await this.pullChanges();
+      console.log(`[SyncService] Pull complete: ${pullResult.pulled} items pulled`);
       result.pulled = pullResult.pulled;
       result.errors.push(...pullResult.errors);
       if (!pullResult.success) {
@@ -193,7 +199,9 @@ export class SyncService {
       }
 
       // Then push (send local changes)
+      console.log('[SyncService] Starting push...');
       const pushResult = await this.pushPendingChanges();
+      console.log(`[SyncService] Push complete: ${pushResult.pushed} items pushed`);
       result.pushed = pushResult.pushed;
       result.deadLettered = pushResult.deadLettered;
       result.errors.push(...pushResult.errors);

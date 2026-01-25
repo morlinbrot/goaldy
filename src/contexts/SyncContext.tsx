@@ -23,6 +23,8 @@ interface SyncContextValue {
   status: SyncStatus;
   isSyncing: boolean;
   isOnline: boolean;
+  isReady: boolean; // True when sync service is initialized and ready
+  hasCompletedInitialSync: boolean; // True after initial sync has run (success or failure)
   sync: () => Promise<SyncResult>;
   refreshStatus: () => Promise<void>;
   retryDeadLetters: () => Promise<number>;
@@ -46,6 +48,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
     deadLetterCount: 0,
     error: null,
   });
+  const [hasCompletedInitialSync, setHasCompletedInitialSync] = useState(false);
 
   // Subscribe to sync service status changes
   useEffect(() => {
@@ -117,14 +120,27 @@ export function SyncProvider({ children }: SyncProviderProps) {
   // Trigger initial sync when authenticated
   useEffect(() => {
     if (isAuthenticated && isConfigured && isInitialized && syncService.isOnline) {
-      syncService.fullSync().then(() => {
+      console.log('[SyncContext] Starting initial sync...');
+      syncService.fullSync().then((result) => {
+        console.log('[SyncContext] Initial sync complete:', result);
         refreshStatus();
-      }).catch(console.error);
+        setHasCompletedInitialSync(true);
+      }).catch((error) => {
+        console.error('[SyncContext] Initial sync failed:', error);
+        setHasCompletedInitialSync(true); // Still mark as complete so app can proceed
+      });
+    } else if (!isAuthenticated || !isConfigured) {
+      // If not authenticated or not configured, mark initial sync as "complete"
+      // so the app doesn't wait for a sync that will never happen
+      setHasCompletedInitialSync(true);
     }
   }, [isAuthenticated, isConfigured, isInitialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async (): Promise<SyncResult> => {
+    console.log('[SyncContext] sync() called', { isAuthenticated, isConfigured, isInitialized });
+
     if (!isAuthenticated || !isConfigured) {
+      console.log('[SyncContext] sync() skipped - not authenticated or not configured');
       return {
         success: false,
         pushed: 0,
@@ -135,6 +151,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
     }
 
     if (!isInitialized) {
+      console.log('[SyncContext] sync() skipped - not initialized');
       return {
         success: false,
         pushed: 0,
@@ -144,7 +161,9 @@ export function SyncProvider({ children }: SyncProviderProps) {
       };
     }
 
+    console.log('[SyncContext] sync() calling fullSync...');
     const result = await syncService.fullSync();
+    console.log('[SyncContext] sync() fullSync complete:', result);
     await refreshStatus();
     return result;
   }, [syncService, isAuthenticated, isConfigured, isInitialized, refreshStatus]);
@@ -161,6 +180,8 @@ export function SyncProvider({ children }: SyncProviderProps) {
     status,
     isSyncing: status.isSyncing,
     isOnline: status.isOnline,
+    isReady: isInitialized,
+    hasCompletedInitialSync,
     sync,
     refreshStatus,
     retryDeadLetters,

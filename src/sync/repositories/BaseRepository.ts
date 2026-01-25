@@ -244,9 +244,15 @@ export abstract class BaseRepository<T extends SyncableEntity> implements Syncab
    */
   async pull(since: string | null): Promise<number> {
     const userId = await getCurrentUserId();
-    if (!userId) return 0;
+    if (!userId) {
+      console.log(`[${this.tableName}] Pull skipped - no user ID`);
+      return 0;
+    }
 
+    console.log(`[${this.tableName}] Pulling changes since: ${since || 'beginning'}`);
     const remoteItems = await this.remoteDataSource.getChangedSince(userId, since);
+    console.log(`[${this.tableName}] Received ${remoteItems.length} items from remote`);
+
     let mergedCount = 0;
 
     for (const remoteItem of remoteItems) {
@@ -254,8 +260,11 @@ export abstract class BaseRepository<T extends SyncableEntity> implements Syncab
       if (merged) mergedCount++;
     }
 
+    console.log(`[${this.tableName}] Merged ${mergedCount} items`);
+
     // Notify listeners if anything changed
     if (mergedCount > 0) {
+      console.log(`[${this.tableName}] Notifying ${this.listeners.size} listeners`);
       await this.notifyListeners();
     }
 
