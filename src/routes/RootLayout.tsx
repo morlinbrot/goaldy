@@ -142,6 +142,17 @@ export function RootLayout({ children }: RootLayoutProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, isSyncReady, hasCompletedInitialSync]);
 
+  // Handle navigation after login (when already initialized)
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!isAuthenticated) return;
+
+    // If user just logged in and is still on auth routes, redirect to home
+    if (location.pathname === "/login" || location.pathname === "/signup") {
+      navigate({ to: "/" });
+    }
+  }, [isInitialized, isAuthenticated, location.pathname, navigate]);
+
   // Back navigation handler using router history
   const handleBack = useMemo(() => {
     // Don't allow back navigation from root pages

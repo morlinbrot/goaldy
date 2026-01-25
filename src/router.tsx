@@ -1,4 +1,3 @@
-import { AutoshipButton, AutoshipProvider } from "@autoship/react";
 import {
   createRootRoute,
   createRoute,
@@ -9,7 +8,6 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { DebugProvider } from "./contexts/DebugContext";
 import { RepositoryProvider } from "./contexts/RepositoryContext";
 import { SyncProvider } from "./contexts/SyncContext";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./lib/supabase-config";
 import { RootLayout } from "./routes/RootLayout";
 import { LoginRoute } from "./routes/auth/login";
 import { SignupRoute } from "./routes/auth/signup";
@@ -33,15 +31,15 @@ const rootRoute = createRootRoute({
       <RepositoryProvider>
         <SyncProvider>
           <DebugProvider>
-            <AutoshipProvider
+            {/*<AutoshipProvider
               supabaseUrl={SUPABASE_URL}
               supabaseAnonKey={SUPABASE_ANON_KEY}
-            >
+            >*/}
               <RootLayout>
                 <Outlet />
               </RootLayout>
-              <AutoshipButton position="bottom-left" />
-            </AutoshipProvider>
+              {/*<AutoshipButton position="bottom-left" />*/}
+            {/*</AutoshipProvider>*/}
           </DebugProvider>
         </SyncProvider>
       </RepositoryProvider>

@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { FeedbackButton } from "./FeedbackButton";
 import { SyncIndicator } from "./SyncIndicator";
+import { UserAvatar } from "./UserAvatar";
 import { Button } from "./ui/button";
 
 interface AppHeaderProps {
@@ -23,6 +24,7 @@ export function AppHeader({ title, onBack, children }: AppHeaderProps) {
       <div className="flex items-center gap-1 shrink-0">
         <SyncIndicator />
         <FeedbackButton />
+        <UserAvatar />
         {children}
       </div>
     </header>
