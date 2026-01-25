@@ -1,14 +1,31 @@
-import { isOnline as checkIsOnline, fullSync, getSyncStatus } from '@/lib/sync';
-import type { SyncResult, SyncStatus } from '@/lib/types';
+/**
+ * SyncContext
+ *
+ * Provides sync status and controls to the React application.
+ * Uses the SyncService from RepositoryContext for actual sync operations.
+ */
+
+import type { SyncResult, SyncStatusState } from '@/sync/types';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { useRepositories } from './RepositoryContext';
+
+interface SyncStatus {
+  isOnline: boolean;
+  isSyncing: boolean;
+  lastSyncAt: string | null;
+  pendingChanges: number;
+  deadLetterCount: number;
+  error: string | null;
+}
 
 interface SyncContextValue {
   status: SyncStatus;
   isSyncing: boolean;
+  isOnline: boolean;
   sync: () => Promise<SyncResult>;
   refreshStatus: () => Promise<void>;
-  isOnline: boolean;
+  retryDeadLetters: () => Promise<number>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -19,60 +36,92 @@ interface SyncProviderProps {
 
 export function SyncProvider({ children }: SyncProviderProps) {
   const { isAuthenticated, isConfigured } = useAuth();
+  const { syncService, isInitialized } = useRepositories();
+
   const [status, setStatus] = useState<SyncStatus>({
     isOnline: true,
     isSyncing: false,
     lastSyncAt: null,
     pendingChanges: 0,
+    deadLetterCount: 0,
     error: null,
   });
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
 
-  // Update online status
+  // Subscribe to sync service status changes
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    if (!isInitialized) return;
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    const unsubscribe = syncService.onStatusChange((syncStatus: SyncStatusState, error?: string) => {
+      setStatus(prev => ({
+        ...prev,
+        isSyncing: syncStatus === 'syncing',
+        error: syncStatus === 'error' ? (error || 'Sync failed') : null,
+        lastSyncAt: syncService.lastSyncAt,
+      }));
+    });
 
-    // Initial check
-    setIsOnline(checkIsOnline());
+    return unsubscribe;
+  }, [syncService, isInitialized]);
 
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+  // Update online status from sync service
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const updateOnlineStatus = () => {
+      setStatus(prev => ({
+        ...prev,
+        isOnline: syncService.isOnline,
+      }));
     };
-  }, []);
 
-  // Function to refresh sync status
-  const refreshStatus = useCallback(async () => {
-    if (!isAuthenticated || !isConfigured) return;
-    try {
-      const newStatus = await getSyncStatus();
-      setStatus(newStatus);
-    } catch (error) {
-      console.error('Failed to get sync status:', error);
-    }
-  }, [isAuthenticated, isConfigured]);
-
-  // Update sync status periodically
-  useEffect(() => {
-    if (!isAuthenticated || !isConfigured) return;
-
-    refreshStatus();
-    const interval = setInterval(refreshStatus, 30000); // Update every 30 seconds
+    // Check periodically
+    updateOnlineStatus();
+    const interval = setInterval(updateOnlineStatus, 5000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, isConfigured, refreshStatus]);
+  }, [syncService, isInitialized]);
 
-  // Auto-sync when coming back online
-  useEffect(() => {
-    if (isOnline && isAuthenticated && isConfigured && status.pendingChanges > 0) {
-      sync().catch(console.error);
+  // Refresh pending changes count periodically
+  const refreshStatus = useCallback(async () => {
+    if (!isInitialized || !isAuthenticated) return;
+
+    try {
+      const [pendingChanges, deadLetterCount] = await Promise.all([
+        syncService.getPendingCount(),
+        syncService.getDeadLetterCount(),
+      ]);
+
+      setStatus(prev => ({
+        ...prev,
+        pendingChanges,
+        deadLetterCount,
+        lastSyncAt: syncService.lastSyncAt,
+        isOnline: syncService.isOnline,
+        isSyncing: syncService.isSyncing,
+      }));
+    } catch (error) {
+      console.error('Failed to refresh sync status:', error);
     }
-  }, [isOnline, isAuthenticated, isConfigured, status.pendingChanges]);
+  }, [syncService, isInitialized, isAuthenticated]);
+
+  // Refresh status periodically
+  useEffect(() => {
+    if (!isAuthenticated || !isConfigured || !isInitialized) return;
+
+    refreshStatus();
+    const interval = setInterval(refreshStatus, 30000); // Every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, isConfigured, isInitialized, refreshStatus]);
+
+  // Trigger initial sync when authenticated
+  useEffect(() => {
+    if (isAuthenticated && isConfigured && isInitialized && syncService.isOnline) {
+      syncService.fullSync().then(() => {
+        refreshStatus();
+      }).catch(console.error);
+    }
+  }, [isAuthenticated, isConfigured, isInitialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async (): Promise<SyncResult> => {
     if (!isAuthenticated || !isConfigured) {
@@ -81,69 +130,40 @@ export function SyncProvider({ children }: SyncProviderProps) {
         pushed: 0,
         pulled: 0,
         errors: ['Not authenticated or Supabase not configured'],
+        deadLettered: 0,
       };
     }
 
-    if (isSyncing) {
+    if (!isInitialized) {
       return {
         success: false,
         pushed: 0,
         pulled: 0,
-        errors: ['Sync already in progress'],
+        errors: ['Sync service not initialized'],
+        deadLettered: 0,
       };
     }
 
-    setIsSyncing(true);
-    setStatus(prev => ({ ...prev, isSyncing: true, error: null }));
+    const result = await syncService.fullSync();
+    await refreshStatus();
+    return result;
+  }, [syncService, isAuthenticated, isConfigured, isInitialized, refreshStatus]);
 
-    try {
-      const result = await fullSync();
+  const retryDeadLetters = useCallback(async (): Promise<number> => {
+    if (!isInitialized) return 0;
 
-      // Update status after sync
-      const newStatus = await getSyncStatus();
-      const error = result.errors.length > 0 ? result.errors[0] : null
-      if (error) {
-        console.error("[Sync Error]", error);
-      }
-      setStatus({
-        ...newStatus,
-        isSyncing: false,
-        error,
-      });
-
-      return result;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Sync failed';
-      console.error("[Sync Error]", errorMessage);
-      setStatus(prev => ({
-        ...prev,
-        isSyncing: false,
-        error: errorMessage,
-      }));
-      return {
-        success: false,
-        pushed: 0,
-        pulled: 0,
-        errors: [errorMessage],
-      };
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [isAuthenticated, isConfigured, isSyncing]);
-
-  // Trigger initial sync when authenticated
-  useEffect(() => {
-    if (isAuthenticated && isConfigured && isOnline) {
-      sync().catch(console.error);
-    }
-  }, [isAuthenticated, isConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
+    const retried = await syncService.retryAllDeadLetters();
+    await refreshStatus();
+    return retried;
+  }, [syncService, isInitialized, refreshStatus]);
 
   const value: SyncContextValue = {
     status,
-    isSyncing,
+    isSyncing: status.isSyncing,
+    isOnline: status.isOnline,
     sync,
     refreshStatus,
-    isOnline,
+    retryDeadLetters,
   };
 
   return (

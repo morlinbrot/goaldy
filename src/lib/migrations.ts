@@ -263,6 +263,29 @@ CREATE TABLE IF NOT EXISTS _migrations (
 );
     `,
   },
+  {
+    name: '00002_dead_letter_queue',
+    sql: `
+-- ============================================
+-- Dead Letter Queue for failed sync operations
+-- ============================================
+CREATE TABLE IF NOT EXISTS dead_letter_queue (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  failed_at TEXT NOT NULL,
+  final_error TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_user ON dead_letter_queue(user_id);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_table ON dead_letter_queue(table_name);
+    `,
+  },
 ];
 
 /**
