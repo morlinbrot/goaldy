@@ -191,4 +191,13 @@ export class HabitGoalsRepository extends BaseRepository<HabitGoal> {
     );
     return (results[0]?.count || 0) > 0;
   }
+
+  /**
+   * Get habit goals that need an alert (approaching or exceeding limits).
+   * Returns habits where spending is >= 80% of target (warning) or >= 100% (exceeded).
+   */
+  async getGoalsNeedingAlert(currentMonth: string): Promise<HabitGoalWithStats[]> {
+    const allGoals = await this.getAllWithStats(currentMonth);
+    return allGoals.filter(goal => goal.status === 'warning' || goal.status === 'exceeded');
+  }
 }

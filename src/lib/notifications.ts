@@ -105,7 +105,6 @@ async function getNotificationDatabase(): Promise<DatabaseInterface> {
 
 // Lazy imports to avoid circular dependencies
 let _getCurrentUserId: (() => Promise<string | null>) | null = null;
-let _queueChange: ((tableName: string, recordId: string, operation: 'insert' | 'update' | 'delete', payload: object) => Promise<void>) | null = null;
 
 async function getCurrentUserId(): Promise<string | null> {
   if (!_getCurrentUserId) {
@@ -116,11 +115,22 @@ async function getCurrentUserId(): Promise<string | null> {
 }
 
 async function queueChange(tableName: string, recordId: string, operation: 'insert' | 'update' | 'delete', payload: object): Promise<void> {
-  if (!_queueChange) {
-    const sync = await import('./sync');
-    _queueChange = sync.queueChange;
+  const userId = await getCurrentUserId();
+  if (!userId) return;
+
+  // Import SyncQueue and enqueue the change
+  const { SyncQueue } = await import('@/lib/sync/services/SyncQueue');
+  const { SYNC_TABLES } = await import('@/lib/sync/types');
+
+  // Map table name to sync table if it's a known sync table
+  const syncTableName = tableName as keyof typeof SYNC_TABLES;
+  if (!(syncTableName in SYNC_TABLES)) {
+    console.warn(`[notifications] Unknown sync table: ${tableName}`);
+    return;
   }
-  return _queueChange(tableName, recordId, operation, payload);
+
+  const queue = new SyncQueue();
+  await queue.enqueue(SYNC_TABLES[syncTableName], recordId, operation, payload, userId);
 }
 
 export type PermissionStatus = 'granted' | 'denied' | 'unavailable';

@@ -1,12 +1,11 @@
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
-import { clearSyncQueue } from '@/lib/sync';
 import { AlertCircle, Check, CloudOff, CloudUpload, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 export function SyncIndicator() {
-  const { status, isSyncing, sync, isOnline, refreshStatus } = useSync();
+  const { status, isSyncing, sync, isOnline, refreshStatus, clearSyncQueue } = useSync();
   const { isAuthenticated, isConfigured } = useAuth();
   const [isResetting, setIsResetting] = useState(false);
 

@@ -392,6 +392,16 @@ export class SyncService {
     return retried;
   }
 
+  /**
+   * Clear all items from the sync queue.
+   * Optionally only clear failed items.
+   */
+  async clearSyncQueue(failedOnly = false): Promise<number> {
+    const userId = await getCurrentUserId();
+    if (!userId) return 0;
+    return this.syncQueue.clearQueue(userId, failedOnly);
+  }
+
   // ============ Private Methods ============
 
   private handleOnline = (): void => {

@@ -1,4 +1,6 @@
-import { getAllHabitGoalsWithStats, getAllSavingsGoalsWithStats, getHabitGoalsNeedingAlert } from './database';
+import { HabitGoalsRepository } from '@/lib/sync/repositories/HabitGoalsRepository';
+import { SavingsGoalsRepository } from '@/lib/sync/repositories/SavingsGoalsRepository';
+import { getSyncService } from '@/lib/sync/services/SyncService';
 import {
     cancelNotificationsByType,
     checkAndSendDueNotifications,
@@ -10,6 +12,30 @@ import {
     type NotificationPreferences
 } from './notifications';
 import type { HabitGoalWithStats, SavingsGoalWithStats } from './types';
+
+// Helper to get current month in YYYY-MM format
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Lazily initialized repositories for background use
+let savingsGoalsRepo: SavingsGoalsRepository | null = null;
+let habitGoalsRepo: HabitGoalsRepository | null = null;
+
+function getSavingsGoalsRepository(): SavingsGoalsRepository {
+  if (!savingsGoalsRepo) {
+    savingsGoalsRepo = new SavingsGoalsRepository(getSyncService());
+  }
+  return savingsGoalsRepo;
+}
+
+function getHabitGoalsRepository(): HabitGoalsRepository {
+  if (!habitGoalsRepo) {
+    habitGoalsRepo = new HabitGoalsRepository(getSyncService());
+  }
+  return habitGoalsRepo;
+}
 
 // Background notification checker state
 let notificationCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -49,7 +75,7 @@ export async function scheduleProgressUpdates(
     return;
   }
 
-  const goals = await getAllSavingsGoalsWithStats();
+  const goals = await getSavingsGoalsRepository().getAllWithStats();
   if (goals.length === 0) return;
 
   // Pick the goal with highest percentage to highlight
@@ -81,7 +107,7 @@ export async function scheduleWhyReminders(
     return;
   }
 
-  const goals = await getAllSavingsGoalsWithStats();
+  const goals = await getSavingsGoalsRepository().getAllWithStats();
   const goalsWithWhy = goals.filter(g => g.why_statement && g.why_statement.trim() !== '');
   if (goalsWithWhy.length === 0) return;
 
@@ -110,7 +136,7 @@ export async function checkAndSendHabitAlerts(): Promise<void> {
     return;
   }
 
-  const habitsNeedingAlert = await getHabitGoalsNeedingAlert();
+  const habitsNeedingAlert = await getHabitGoalsRepository().getGoalsNeedingAlert(getCurrentMonth());
 
   for (const habit of habitsNeedingAlert) {
     const alertMessage = generateHabitAlertMessage(habit);
@@ -160,7 +186,7 @@ export async function scheduleHabitMilestoneNotifications(
     return;
   }
 
-  const habits = await getAllHabitGoalsWithStats();
+  const habits = await getHabitGoalsRepository().getAllWithStats(getCurrentMonth());
 
   // Find habits with significant streaks to celebrate
   for (const habit of habits) {

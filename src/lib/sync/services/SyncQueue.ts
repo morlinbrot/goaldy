@@ -284,4 +284,27 @@ export class SyncQueue {
 
     return result.rowsAffected;
   }
+
+  /**
+   * Clear the sync queue.
+   * If failedOnly is true, only clears items that have failed at least once.
+   * Otherwise clears all pending items.
+   */
+  async clearQueue(userId: string, failedOnly: boolean = false): Promise<number> {
+    const db = await getDatabase();
+
+    if (failedOnly) {
+      const result = await db.execute(
+        `DELETE FROM sync_queue WHERE user_id = $1 AND attempts > 0`,
+        [userId]
+      );
+      return result.rowsAffected;
+    } else {
+      const result = await db.execute(
+        `DELETE FROM sync_queue WHERE user_id = $1`,
+        [userId]
+      );
+      return result.rowsAffected;
+    }
+  }
 }

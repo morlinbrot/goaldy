@@ -16,8 +16,8 @@ import {
     SavingsContributionsRepository,
     SavingsGoalsRepository,
     ScheduledNotificationsRepository,
-} from '@/sync/repositories';
-import { getSyncService, type SyncService } from '@/sync/services/SyncService';
+} from '@/lib/sync/repositories';
+import { getSyncService, type SyncService } from '@/lib/sync/services/SyncService';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 export interface RepositoryContextValue {

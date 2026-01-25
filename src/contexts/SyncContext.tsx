@@ -5,7 +5,7 @@
  * Uses the SyncService from RepositoryContext for actual sync operations.
  */
 
-import type { SyncResult, SyncStatusState } from '@/sync/types';
+import type { SyncResult, SyncStatusState } from '@/lib/sync/types';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { useRepositories } from './RepositoryContext';
@@ -28,6 +28,7 @@ interface SyncContextValue {
   sync: () => Promise<SyncResult>;
   refreshStatus: () => Promise<void>;
   retryDeadLetters: () => Promise<number>;
+  clearSyncQueue: (failedOnly?: boolean) => Promise<number>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -176,6 +177,14 @@ export function SyncProvider({ children }: SyncProviderProps) {
     return retried;
   }, [syncService, isInitialized, refreshStatus]);
 
+  const clearSyncQueue = useCallback(async (failedOnly = false): Promise<number> => {
+    if (!isInitialized) return 0;
+
+    const cleared = await syncService.clearSyncQueue(failedOnly);
+    await refreshStatus();
+    return cleared;
+  }, [syncService, isInitialized, refreshStatus]);
+
   const value: SyncContextValue = {
     status,
     isSyncing: status.isSyncing,
@@ -185,6 +194,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
     sync,
     refreshStatus,
     retryDeadLetters,
+    clearSyncQueue,
   };
 
   return (
