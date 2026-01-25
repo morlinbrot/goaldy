@@ -1,14 +1,15 @@
 import { BottomNav } from "@/components/BottomNav";
 import { PermissionPrompt } from "@/components/PermissionPrompt";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSync } from "@/contexts/SyncContext";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
 import { getCurrentBudget } from "@/lib/database";
 import { initializeNotifications } from "@/lib/notification-scheduler";
 import { fullSync } from "@/lib/sync";
-import type { Budget } from "@/lib/types";
+import type { Budget, SyncResult } from "@/lib/types";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 interface AppState {
   budget: Budget | null;
@@ -40,10 +41,34 @@ export function RootLayout({ children }: RootLayoutProps) {
     isConfigured,
     hasSkippedAuth,
   } = useAuth();
+  const { onSyncComplete, markInitialSyncDone } = useSync();
 
   const [budget, setBudget] = useState<Budget | null>(null);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Function to refetch budget from local database
+  const refetchBudget = useCallback(async () => {
+    try {
+      const currentBudget = await getCurrentBudget();
+      console.log('[App] Refetched budget after sync:', currentBudget?.id);
+      setBudget(currentBudget);
+    } catch (error) {
+      console.error('[App] Failed to refetch budget:', error);
+    }
+  }, []);
+
+  // Subscribe to sync completion events to refetch budget when remote data arrives
+  useEffect(() => {
+    const unsubscribe = onSyncComplete((result: SyncResult) => {
+      // Only refetch if sync pulled data from remote
+      if (result.pulled > 0) {
+        console.log('[App] Sync pulled', result.pulled, 'records, refetching budget...');
+        refetchBudget();
+      }
+    });
+    return unsubscribe;
+  }, [onSyncComplete, refetchBudget]);
 
   // Determine initial view based on auth state - runs only once on mount
   useEffect(() => {
@@ -72,6 +97,9 @@ export function RootLayout({ children }: RootLayoutProps) {
       // At this point we're either authenticated or skipped auth
       // If authenticated, do initial sync to get data from other devices
       if (isAuthenticated) {
+        // Mark initial sync as done BEFORE calling fullSync
+        // This prevents SyncContext from also triggering a sync
+        markInitialSyncDone();
         try {
           console.log('[App] Running initial sync...');
           await fullSync();

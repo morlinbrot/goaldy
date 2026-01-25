@@ -1,7 +1,10 @@
 import { isOnline as checkIsOnline, fullSync, getSyncStatus } from '@/lib/sync';
 import type { SyncResult, SyncStatus } from '@/lib/types';
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+
+// Listeners that want to be notified when sync completes
+type SyncCompleteListener = (result: SyncResult) => void;
 
 interface SyncContextValue {
   status: SyncStatus;
@@ -9,6 +12,10 @@ interface SyncContextValue {
   sync: () => Promise<SyncResult>;
   refreshStatus: () => Promise<void>;
   isOnline: boolean;
+  /** Subscribe to sync completion events. Returns unsubscribe function. */
+  onSyncComplete: (listener: SyncCompleteListener) => () => void;
+  /** Mark that initial sync has been handled externally (e.g., by RootLayout) */
+  markInitialSyncDone: () => void;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -28,6 +35,33 @@ export function SyncProvider({ children }: SyncProviderProps) {
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+
+  // Track whether initial sync has been done (to avoid duplicate sync on startup)
+  const initialSyncDoneRef = useRef(false);
+
+  // Listeners for sync completion
+  const syncCompleteListenersRef = useRef<Set<SyncCompleteListener>>(new Set());
+
+  const markInitialSyncDone = useCallback(() => {
+    initialSyncDoneRef.current = true;
+  }, []);
+
+  const onSyncComplete = useCallback((listener: SyncCompleteListener) => {
+    syncCompleteListenersRef.current.add(listener);
+    return () => {
+      syncCompleteListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  const notifySyncComplete = useCallback((result: SyncResult) => {
+    for (const listener of syncCompleteListenersRef.current) {
+      try {
+        listener(result);
+      } catch (err) {
+        console.error('[SyncContext] Listener error:', err);
+      }
+    }
+  }, []);
 
   // Update online status
   useEffect(() => {
@@ -111,6 +145,9 @@ export function SyncProvider({ children }: SyncProviderProps) {
         error,
       });
 
+      // Notify listeners that sync completed (so they can refetch data)
+      notifySyncComplete(result);
+
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Sync failed';
@@ -120,20 +157,25 @@ export function SyncProvider({ children }: SyncProviderProps) {
         isSyncing: false,
         error: errorMessage,
       }));
-      return {
+      const failedResult: SyncResult = {
         success: false,
         pushed: 0,
         pulled: 0,
         errors: [errorMessage],
       };
+      notifySyncComplete(failedResult);
+      return failedResult;
     } finally {
       setIsSyncing(false);
     }
-  }, [isAuthenticated, isConfigured, isSyncing]);
+  }, [isAuthenticated, isConfigured, isSyncing, notifySyncComplete]);
 
-  // Trigger initial sync when authenticated
+  // Trigger initial sync when authenticated - but only if not already done by RootLayout
+  // This prevents the race condition where both RootLayout and SyncContext trigger sync
   useEffect(() => {
-    if (isAuthenticated && isConfigured && isOnline) {
+    if (isAuthenticated && isConfigured && isOnline && !initialSyncDoneRef.current) {
+      // RootLayout should call markInitialSyncDone() after its sync completes
+      // If it hasn't been marked, this is a backup trigger (e.g., for late auth)
       sync().catch(console.error);
     }
   }, [isAuthenticated, isConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -144,6 +186,8 @@ export function SyncProvider({ children }: SyncProviderProps) {
     sync,
     refreshStatus,
     isOnline,
+    onSyncComplete,
+    markInitialSyncDone,
   };
 
   return (
