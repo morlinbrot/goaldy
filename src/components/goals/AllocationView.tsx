@@ -2,7 +2,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getAllSavingsGoalsWithStats, updateSavingsGoal } from "@/lib/database";
+import { useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
 import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -20,6 +20,7 @@ interface AllocationItem {
 }
 
 export function AllocationView({ onBack, onSaved }: AllocationViewProps) {
+  const savingsGoalsRepository = useSavingsGoalsRepository();
   const [goals, setGoals] = useState<SavingsGoalWithStats[]>([]);
   const [allocations, setAllocations] = useState<AllocationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,7 +29,7 @@ export function AllocationView({ onBack, onSaved }: AllocationViewProps) {
 
   const loadGoals = useCallback(async () => {
     try {
-      const goalsData = await getAllSavingsGoalsWithStats();
+      const goalsData = await savingsGoalsRepository.getAllWithStats();
       setGoals(goalsData);
       setAllocations(goalsData.map(goal => ({
         goalId: goal.id,
@@ -41,7 +42,7 @@ export function AllocationView({ onBack, onSaved }: AllocationViewProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [savingsGoalsRepository]);
 
   useEffect(() => {
     loadGoals();
@@ -62,7 +63,7 @@ export function AllocationView({ onBack, onSaved }: AllocationViewProps) {
       for (const allocation of allocations) {
         const newAmount = parseFloat(allocation.newAmount);
         if (!isNaN(newAmount) && newAmount !== allocation.currentAmount) {
-          await updateSavingsGoal(allocation.goalId, {
+          await savingsGoalsRepository.update(allocation.goalId, {
             monthly_contribution: newAmount,
           });
         }

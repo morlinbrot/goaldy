@@ -1,6 +1,6 @@
 import { GoalDashboard } from "@/components/goals/GoalDashboard";
+import { useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { useSync } from "@/contexts/SyncContext";
-import { getSavingsGoalWithStats } from "@/lib/database";
 import type { SavingsGoalWithStats } from "@/lib/types";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -8,13 +8,14 @@ import { useCallback, useEffect, useState } from "react";
 export function GoalDetailRoute() {
   const navigate = useNavigate();
   const { goalId } = useParams({ from: "/goals/$goalId" });
+  const savingsGoalsRepository = useSavingsGoalsRepository();
   const { refreshStatus } = useSync();
   const [goal, setGoal] = useState<SavingsGoalWithStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadGoalData = useCallback(async () => {
     try {
-      const goalData = await getSavingsGoalWithStats(goalId);
+      const goalData = await savingsGoalsRepository.getWithStats(goalId);
       setGoal(goalData);
     } catch (error) {
       console.error('Failed to load goal:', error);
@@ -22,7 +23,7 @@ export function GoalDetailRoute() {
     } finally {
       setIsLoading(false);
     }
-  }, [goalId, navigate]);
+  }, [goalId, navigate, savingsGoalsRepository]);
 
   useEffect(() => {
     loadGoalData();

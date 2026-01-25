@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
-import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { addFeedbackNote } from "@/lib/database";
+import { useFeedbackNotesRepository } from "@/contexts/RepositoryContext";
+import { cn } from "@/lib/utils";
+import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface FeedbackModalProps {
 }
 
 export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
+  const feedbackNotesRepository = useFeedbackNotesRepository();
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -25,7 +26,9 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
 
     setIsSaving(true);
     try {
-      await addFeedbackNote(content.trim());
+      await feedbackNotesRepository.create({
+        content: content.trim(),
+      });
       setContent("");
       onClose();
     } catch (error) {

@@ -1,7 +1,7 @@
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getAllSavingsGoalsWithStats } from "@/lib/database";
+import { useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
 import { Plus, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -14,23 +14,32 @@ interface GoalsListProps {
 }
 
 export function GoalsList({ onCreateGoal, onSelectGoal, onAllocation }: GoalsListProps) {
+  const savingsGoalsRepository = useSavingsGoalsRepository();
   const [goals, setGoals] = useState<SavingsGoalWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadGoals = useCallback(async () => {
     try {
-      const goalsData = await getAllSavingsGoalsWithStats();
+      const goalsData = await savingsGoalsRepository.getAllWithStats();
       setGoals(goalsData);
     } catch (error) {
       console.error('Failed to load goals:', error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [savingsGoalsRepository]);
 
   useEffect(() => {
     loadGoals();
   }, [loadGoals]);
+
+  // Subscribe to repository changes
+  useEffect(() => {
+    const unsubscribe = savingsGoalsRepository.subscribe(() => {
+      loadGoals();
+    });
+    return unsubscribe;
+  }, [savingsGoalsRepository, loadGoals]);
 
   // Calculate total monthly contribution
   const totalMonthlyContribution = goals.reduce((sum, goal) => sum + goal.monthly_contribution, 0);

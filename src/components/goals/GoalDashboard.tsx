@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebug } from "@/contexts/DebugContext";
-import { clearContributionsForGoal, deleteSavingsGoal, getContributionForMonth, updateSavingsGoal } from "@/lib/database";
+import { useSavingsContributionsRepository, useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type SavingsGoalWithStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -36,6 +36,8 @@ interface GoalDashboardProps {
 }
 
 export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }: GoalDashboardProps) {
+  const savingsGoalsRepository = useSavingsGoalsRepository();
+  const savingsContributionsRepository = useSavingsContributionsRepository();
   const { isDebugMode } = useDebug();
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -59,9 +61,9 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
 
   const loadCurrentMonthContribution = useCallback(async () => {
     const currentMonth = getCurrentMonth();
-    const contribution = await getContributionForMonth(goal.id, currentMonth);
+    const contribution = await savingsContributionsRepository.getByGoalAndMonth(goal.id, currentMonth);
     setCurrentMonthContribution(contribution?.amount ?? null);
-  }, [goal.id]);
+  }, [goal.id, savingsContributionsRepository]);
 
   useEffect(() => {
     loadCurrentMonthContribution();
@@ -107,7 +109,7 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
 
     setIsSaving(true);
     try {
-      await updateSavingsGoal(goal.id, { monthly_contribution: newValue });
+      await savingsGoalsRepository.update(goal.id, { monthly_contribution: newValue });
       setEditingField(null);
       setEditContributionValue('');
       onUpdated();
@@ -124,7 +126,7 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
 
     setIsSaving(true);
     try {
-      await updateSavingsGoal(goal.id, { target_amount: newValue });
+      await savingsGoalsRepository.update(goal.id, { target_amount: newValue });
       setEditingField(null);
       setEditTargetValue('');
       onUpdated();
@@ -140,7 +142,7 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
 
     setIsSaving(true);
     try {
-      await updateSavingsGoal(goal.id, { target_date: date.toISOString().split('T')[0] });
+      await savingsGoalsRepository.update(goal.id, { target_date: date.toISOString().split('T')[0] });
       setEditingField(null);
       setEditDateValue(undefined);
       onUpdated();
@@ -154,7 +156,7 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await deleteSavingsGoal(goal.id);
+      await savingsGoalsRepository.delete(goal.id);
       onDeleted();
     } catch (error) {
       console.error('Failed to delete goal:', error);
@@ -166,7 +168,11 @@ export function GoalDashboard({ goal, onBack, onCheckIn, onDeleted, onUpdated }:
   const handleClearContributions = async () => {
     setIsClearing(true);
     try {
-      await clearContributionsForGoal(goal.id);
+      // Get all contributions for this goal and delete them
+      const contributions = await savingsContributionsRepository.getByGoal(goal.id);
+      for (const contribution of contributions) {
+        await savingsContributionsRepository.delete(contribution.id);
+      }
       setShowClearConfirm(false);
       onUpdated();
     } catch (error) {

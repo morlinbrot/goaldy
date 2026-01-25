@@ -1,7 +1,7 @@
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getAllHabitGoalsWithStats } from "@/lib/database";
+import { useHabitGoalsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type HabitGoalWithStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, CheckCircle, Flame, Plus, TrendingDown } from "lucide-react";
@@ -12,24 +12,40 @@ interface HabitsListProps {
   onSelectHabit: (habitId: string) => void;
 }
 
+// Get current month string for stats
+function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function HabitsList({ onCreateHabit, onSelectHabit }: HabitsListProps) {
+  const habitGoalsRepository = useHabitGoalsRepository();
   const [habits, setHabits] = useState<HabitGoalWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadHabits = useCallback(async () => {
     try {
-      const habitsData = await getAllHabitGoalsWithStats();
+      const currentMonth = getCurrentMonth();
+      const habitsData = await habitGoalsRepository.getAllWithStats(currentMonth);
       setHabits(habitsData);
     } catch (error) {
       console.error('Failed to load habits:', error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [habitGoalsRepository]);
 
   useEffect(() => {
     loadHabits();
   }, [loadHabits]);
+
+  // Subscribe to repository changes
+  useEffect(() => {
+    const unsubscribe = habitGoalsRepository.subscribe(() => {
+      loadHabits();
+    });
+    return unsubscribe;
+  }, [habitGoalsRepository, loadHabits]);
 
   // Calculate summary stats
   const compliantCount = habits.filter(h => h.is_compliant).length;

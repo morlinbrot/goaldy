@@ -3,7 +3,7 @@ import { CategorySelector } from "@/components/CategorySelector";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createHabitGoal, getCategories } from "@/lib/database";
+import { useCategoriesRepository, useHabitGoalsRepository } from "@/contexts/RepositoryContext";
 import type { Category } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -34,6 +34,8 @@ const ruleTypeOptions: { value: RuleType; label: string; description: string }[]
 ];
 
 export function HabitCreationForm({ onHabitCreated, onBack }: HabitCreationFormProps) {
+  const categoriesRepository = useCategoriesRepository();
+  const habitGoalsRepository = useHabitGoalsRepository();
   const [name, setName] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [ruleType, setRuleType] = useState<RuleType>('max_amount');
@@ -43,17 +45,16 @@ export function HabitCreationForm({ onHabitCreated, onBack }: HabitCreationFormP
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const cats = await categoriesRepository.getAll();
+        setCategories(cats);
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      }
+    };
     loadCategories();
-  }, []);
-
-  const loadCategories = async () => {
-    try {
-      const cats = await getCategories();
-      setCategories(cats);
-    } catch (err) {
-      console.error('Failed to load categories:', err);
-    }
-  };
+  }, [categoriesRepository]);
 
   // Auto-generate name based on category and rule
   useEffect(() => {
@@ -105,12 +106,16 @@ export function HabitCreationForm({ onHabitCreated, onBack }: HabitCreationFormP
 
     setIsSubmitting(true);
     try {
-      await createHabitGoal(
-        name.trim() || `${categories.find(c => c.id === categoryId)?.name || 'Category'} habit`,
-        categoryId,
-        ruleType,
-        value
-      );
+      const today = new Date().toISOString().split('T')[0];
+      await habitGoalsRepository.create({
+        name: name.trim() || `${categories.find(c => c.id === categoryId)?.name || 'Category'} habit`,
+        category_id: categoryId,
+        rule_type: ruleType,
+        rule_value: value,
+        duration_months: null,
+        start_date: today,
+        privacy_level: 'private',
+      });
       onHabitCreated();
     } catch (err) {
       console.error('Failed to create habit goal:', err);

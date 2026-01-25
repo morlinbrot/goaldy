@@ -1,32 +1,41 @@
-import { deleteFeedbackNote, getFeedbackNotes } from "@/lib/database";
+import { useFeedbackNotesRepository } from "@/contexts/RepositoryContext";
 import type { FeedbackNote } from "@/lib/types";
 import { Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "./AppHeader";
 
 export function FeedbackList() {
+  const feedbackNotesRepository = useFeedbackNotesRepository();
   const [notes, setNotes] = useState<FeedbackNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     try {
-      const data = await getFeedbackNotes();
+      const data = await feedbackNotesRepository.getAll();
       setNotes(data);
     } catch (error) {
       console.error("Failed to load feedback notes:", error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [feedbackNotesRepository]);
 
   useEffect(() => {
     loadNotes();
-  }, []);
+  }, [loadNotes]);
+
+  // Subscribe to repository changes
+  useEffect(() => {
+    const unsubscribe = feedbackNotesRepository.subscribe(() => {
+      loadNotes();
+    });
+    return unsubscribe;
+  }, [feedbackNotesRepository, loadNotes]);
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteFeedbackNote(id);
-      setNotes(notes.filter((n) => n.id !== id));
+      await feedbackNotesRepository.delete(id);
+      // Note: We don't need to manually update state since the subscription will handle it
     } catch (error) {
       console.error("Failed to delete note:", error);
     }

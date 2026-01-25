@@ -4,7 +4,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { createSavingsGoal } from "@/lib/database";
+import { useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
@@ -30,6 +30,7 @@ function getMinDate(): Date {
 }
 
 export function GoalCreationForm({ onGoalCreated, onBack }: GoalCreationFormProps) {
+  const savingsGoalsRepository = useSavingsGoalsRepository();
   const [name, setName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [targetDate, setTargetDate] = useState<Date>(getDefaultTargetDate());
@@ -151,13 +152,14 @@ export function GoalCreationForm({ onGoalCreated, onBack }: GoalCreationFormProp
 
     setIsSubmitting(true);
     try {
-      await createSavingsGoal(
-        name.trim(),
-        amount,
-        targetDate.toISOString().split('T')[0],
-        contribution,
-        whyStatement.trim() || undefined
-      );
+      await savingsGoalsRepository.create({
+        name: name.trim(),
+        target_amount: amount,
+        target_date: targetDate.toISOString().split('T')[0],
+        monthly_contribution: contribution,
+        why_statement: whyStatement.trim() || null,
+        privacy_level: 'private',
+      });
       onGoalCreated();
     } catch (err) {
       console.error('Failed to create goal:', err);

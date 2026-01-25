@@ -1,10 +1,10 @@
 import { BottomNav } from "@/components/BottomNav";
 import { PermissionPrompt } from "@/components/PermissionPrompt";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBudgetsRepository } from "@/contexts/RepositoryContext";
+import { useSync } from "@/contexts/SyncContext";
 import { useBackNavigation } from "@/hooks/useBackNavigation";
-import { getCurrentBudget } from "@/lib/database";
 import { initializeNotifications } from "@/lib/notification-scheduler";
-import { fullSync } from "@/lib/sync";
 import type { Budget } from "@/lib/types";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -40,6 +40,8 @@ export function RootLayout({ children }: RootLayoutProps) {
     isConfigured,
     hasSkippedAuth,
   } = useAuth();
+  const { sync } = useSync();
+  const budgetsRepo = useBudgetsRepository();
 
   const [budget, setBudget] = useState<Budget | null>(null);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
@@ -74,7 +76,7 @@ export function RootLayout({ children }: RootLayoutProps) {
       if (isAuthenticated) {
         try {
           console.log('[App] Running initial sync...');
-          await fullSync();
+          await sync();
           console.log('[App] Initial sync complete');
         } catch (err) {
           console.warn('[App] Failed to sync during init:', err);
@@ -84,7 +86,7 @@ export function RootLayout({ children }: RootLayoutProps) {
 
       // Load budget from local database
       try {
-        const currentBudget = await getCurrentBudget();
+        const currentBudget = await budgetsRepo.getCurrentBudget();
         setBudget(currentBudget);
 
         if (currentBudget && currentBudget.total_amount > 0) {

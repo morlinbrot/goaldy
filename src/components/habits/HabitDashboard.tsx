@@ -3,7 +3,7 @@ import { Confetti } from "@/components/goals/Confetti";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { deleteHabitGoal, getHabitTrackingForGoal, updateHabitGoal } from "@/lib/database";
+import { useHabitGoalsRepository, useHabitTrackingRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type HabitGoalWithStats, type HabitTracking } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Check, CheckCircle, Flame, Trash2, TrendingDown } from "lucide-react";
@@ -17,6 +17,8 @@ interface HabitDashboardProps {
 }
 
 export function HabitDashboard({ habit, onBack, onDeleted, onUpdated }: HabitDashboardProps) {
+  const habitGoalsRepository = useHabitGoalsRepository();
+  const habitTrackingRepository = useHabitTrackingRepository();
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -32,12 +34,12 @@ export function HabitDashboard({ habit, onBack, onDeleted, onUpdated }: HabitDas
 
   const loadTrackingHistory = useCallback(async () => {
     try {
-      const history = await getHabitTrackingForGoal(habit.id);
+      const history = await habitTrackingRepository.getByHabitGoal(habit.id);
       setTrackingHistory(history);
     } catch (error) {
       console.error('Failed to load tracking history:', error);
     }
-  }, [habit.id]);
+  }, [habit.id, habitTrackingRepository]);
 
   useEffect(() => {
     loadTrackingHistory();
@@ -87,7 +89,7 @@ export function HabitDashboard({ habit, onBack, onDeleted, onUpdated }: HabitDas
 
     setIsSaving(true);
     try {
-      await updateHabitGoal(habit.id, { name: editNameValue.trim() });
+      await habitGoalsRepository.update(habit.id, { name: editNameValue.trim() });
       setEditingField(null);
       setEditNameValue('');
       onUpdated();
@@ -104,7 +106,7 @@ export function HabitDashboard({ habit, onBack, onDeleted, onUpdated }: HabitDas
 
     setIsSaving(true);
     try {
-      await updateHabitGoal(habit.id, { rule_value: newValue });
+      await habitGoalsRepository.update(habit.id, { rule_value: newValue });
       setEditingField(null);
       setEditRuleValue('');
       onUpdated();
@@ -118,7 +120,7 @@ export function HabitDashboard({ habit, onBack, onDeleted, onUpdated }: HabitDas
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await deleteHabitGoal(habit.id);
+      await habitGoalsRepository.delete(habit.id);
       onDeleted();
     } catch (error) {
       console.error('Failed to delete habit goal:', error);

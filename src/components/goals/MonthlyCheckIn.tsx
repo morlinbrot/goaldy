@@ -2,7 +2,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { addContribution, getContributionForMonth, getSavingsGoal } from "@/lib/database";
+import { useSavingsContributionsRepository, useSavingsGoalsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type SavingsContribution, type SavingsGoal } from "@/lib/types";
 import { Check, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,6 +28,8 @@ function getCurrentMonthName(): string {
 }
 
 export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInProps) {
+  const savingsGoalsRepository = useSavingsGoalsRepository();
+  const savingsContributionsRepository = useSavingsContributionsRepository();
   const [goal, setGoal] = useState<SavingsGoal | null>(null);
   const [existingContribution, setExistingContribution] = useState<SavingsContribution | null>(null);
   const [step, setStep] = useState<CheckInStep | null>(null);
@@ -41,8 +43,8 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
     try {
       const currentMonth = getCurrentMonth();
       const [goalData, existingContrib] = await Promise.all([
-        getSavingsGoal(goalId),
-        getContributionForMonth(goalId, currentMonth),
+        savingsGoalsRepository.getById(goalId),
+        savingsContributionsRepository.getByGoalAndMonth(goalId, currentMonth),
       ]);
       setGoal(goalData);
       setExistingContribution(existingContrib);
@@ -58,7 +60,7 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
     } finally {
       setIsLoading(false);
     }
-  }, [goalId]);
+  }, [goalId, savingsGoalsRepository, savingsContributionsRepository]);
 
   useEffect(() => {
     loadGoal();
@@ -78,7 +80,10 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
     if (!goal) return;
     setIsSaving(true);
     try {
-      await addContribution(goalId, getCurrentMonth(), goal.monthly_contribution, true);
+      await savingsContributionsRepository.upsertForGoalMonth(goalId, getCurrentMonth(), {
+        amount: goal.monthly_contribution,
+        is_full_amount: 1,
+      });
       setShowConfetti(true);
       setStep('celebration');
     } catch (error) {
@@ -95,7 +100,10 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
 
     setIsSaving(true);
     try {
-      await addContribution(goalId, getCurrentMonth(), amount, false);
+      await savingsContributionsRepository.upsertForGoalMonth(goalId, getCurrentMonth(), {
+        amount,
+        is_full_amount: 0,
+      });
       if (amount > 0) {
         setShowConfetti(true);
         setStep('celebration');
@@ -113,7 +121,10 @@ export function MonthlyCheckIn({ goalId, onComplete, onBack }: MonthlyCheckInPro
     if (!goal) return;
     setIsSaving(true);
     try {
-      await addContribution(goalId, getCurrentMonth(), 0, false);
+      await savingsContributionsRepository.upsertForGoalMonth(goalId, getCurrentMonth(), {
+        amount: 0,
+        is_full_amount: 0,
+      });
       setStep('encouragement');
     } catch (error) {
       console.error('Failed to save contribution:', error);

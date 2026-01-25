@@ -1,6 +1,6 @@
+import { useCategoriesRepository, useExpensesRepository } from "@/contexts/RepositoryContext";
 import { useSync } from "@/contexts/SyncContext";
-import { addExpense, deleteExpense, getCategories, getExpensesForMonth, getMonthlySpending } from "@/lib/database";
-import { formatCurrency, type Budget, type Category, type ExpenseWithCategory } from "@/lib/types";
+import { formatCurrency, getCurrentMonth, type Budget, type Category, type ExpenseWithCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +17,9 @@ interface HomeScreenProps {
 
 export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
   const { refreshStatus } = useSync();
+  const expensesRepo = useExpensesRepository();
+  const categoriesRepo = useCategoriesRepository();
+
   const [amount, setAmount] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -26,12 +29,14 @@ export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
   const [showCategories, setShowCategories] = useState(false);
   const [showExpenses, setShowExpenses] = useState(false);
 
+  const currentMonth = getCurrentMonth();
+
   const loadData = useCallback(async () => {
     try {
       const [cats, exps, spent] = await Promise.all([
-        getCategories(),
-        getExpensesForMonth(),
-        getMonthlySpending(),
+        categoriesRepo.getVisible(),
+        expensesRepo.getByMonthWithCategories(currentMonth),
+        expensesRepo.getTotalForMonth(currentMonth),
       ]);
       setCategories(cats);
       setExpenses(exps);
@@ -39,7 +44,22 @@ export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
     } catch (error) {
       console.error('Failed to load data:', error);
     }
-  }, []);
+  }, [categoriesRepo, expensesRepo, currentMonth]);
+
+  // Subscribe to repository changes
+  useEffect(() => {
+    const unsubExpenses = expensesRepo.subscribe(() => {
+      loadData();
+    });
+    const unsubCategories = categoriesRepo.subscribe(() => {
+      loadData();
+    });
+
+    return () => {
+      unsubExpenses();
+      unsubCategories();
+    };
+  }, [expensesRepo, categoriesRepo, loadData]);
 
   useEffect(() => {
     loadData();
@@ -59,12 +79,17 @@ export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
 
     setIsLoading(true);
     try {
-      await addExpense(value, selectedCategory || undefined);
+      await expensesRepo.create({
+        amount: value,
+        category_id: selectedCategory || null,
+        note: null,
+        date: new Date().toISOString().split('T')[0],
+        synced_at: null,
+      });
       setAmount('');
       setSelectedCategory(null);
       setShowCategories(false);
-      await loadData();
-      await refreshStatus(); // Update sync indicator
+      await refreshStatus();
     } catch (error) {
       console.error('Failed to add expense:', error);
     } finally {
@@ -74,9 +99,8 @@ export function HomeScreen({ budget, onEditBudget }: HomeScreenProps) {
 
   const handleDeleteExpense = async (id: string) => {
     try {
-      await deleteExpense(id);
-      await loadData();
-      await refreshStatus(); // Update sync indicator
+      await expensesRepo.delete(id);
+      await refreshStatus();
     } catch (error) {
       console.error('Failed to delete expense:', error);
     }

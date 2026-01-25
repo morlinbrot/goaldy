@@ -1,5 +1,5 @@
 import { Input } from "@/components/ui/input";
-import { addContribution, getContributionsForGoal } from "@/lib/database";
+import { useSavingsContributionsRepository } from "@/contexts/RepositoryContext";
 import { formatCurrency, type SavingsContribution, type SavingsGoalWithStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Check, X } from "lucide-react";
@@ -20,6 +20,7 @@ interface MonthData {
 }
 
 export function MonthlyOverviewChart({ goal, onContributionUpdated }: MonthlyOverviewChartProps) {
+  const savingsContributionsRepository = useSavingsContributionsRepository();
   const [contributions, setContributions] = useState<SavingsContribution[]>([]);
   const [tooltipMonth, setTooltipMonth] = useState<string | null>(null);
   const [editingMonth, setEditingMonth] = useState<string | null>(null);
@@ -31,11 +32,11 @@ export function MonthlyOverviewChart({ goal, onContributionUpdated }: MonthlyOve
   // Re-fetch when goal.total_saved changes (indicates a contribution was added/updated)
   useEffect(() => {
     const loadContributions = async () => {
-      const data = await getContributionsForGoal(goal.id);
+      const data = await savingsContributionsRepository.getByGoal(goal.id);
       setContributions(data);
     };
     loadContributions();
-  }, [goal.id, goal.total_saved]);
+  }, [goal.id, goal.total_saved, savingsContributionsRepository]);
 
   useEffect(() => {
     if (editingMonth && inputRef.current) {
@@ -132,7 +133,10 @@ export function MonthlyOverviewChart({ goal, onContributionUpdated }: MonthlyOve
 
     setIsSaving(true);
     try {
-      await addContribution(goal.id, editingMonth, amount, amount >= goal.monthly_contribution);
+      await savingsContributionsRepository.upsertForGoalMonth(goal.id, editingMonth, {
+        amount,
+        is_full_amount: amount >= goal.monthly_contribution ? 1 : 0,
+      });
       setEditingMonth(null);
       setEditValue("");
       // onContributionUpdated will trigger parent to refresh goal data,

@@ -1,12 +1,13 @@
 import { AutoshipButton, AutoshipProvider } from "@autoship/react";
 import {
-    createRootRoute,
-    createRoute,
-    createRouter,
-    Outlet,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
 } from "@tanstack/react-router";
 import { AuthProvider } from "./contexts/AuthContext";
 import { DebugProvider } from "./contexts/DebugContext";
+import { RepositoryProvider } from "./contexts/RepositoryContext";
 import { SyncProvider } from "./contexts/SyncContext";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./lib/supabase-config";
 import { RootLayout } from "./routes/RootLayout";
@@ -29,19 +30,21 @@ import { SetupRoute } from "./routes/setup";
 const rootRoute = createRootRoute({
   component: () => (
     <AuthProvider>
-      <SyncProvider>
-        <DebugProvider>
-          <AutoshipProvider
-            supabaseUrl={SUPABASE_URL}
-            supabaseAnonKey={SUPABASE_ANON_KEY}
-          >
-            <RootLayout>
-              <Outlet />
-            </RootLayout>
-            <AutoshipButton position="bottom-left" />
-          </AutoshipProvider>
-        </DebugProvider>
-      </SyncProvider>
+      <RepositoryProvider>
+        <SyncProvider>
+          <DebugProvider>
+            <AutoshipProvider
+              supabaseUrl={SUPABASE_URL}
+              supabaseAnonKey={SUPABASE_ANON_KEY}
+            >
+              <RootLayout>
+                <Outlet />
+              </RootLayout>
+              <AutoshipButton position="bottom-left" />
+            </AutoshipProvider>
+          </DebugProvider>
+        </SyncProvider>
+      </RepositoryProvider>
     </AuthProvider>
   ),
 });
