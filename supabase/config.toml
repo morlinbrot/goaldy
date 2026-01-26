@@ -285,6 +285,15 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 1
 
+# Edge Function configurations
+# Disable automatic JWT verification since we use publishable keys
+# We handle JWT verification manually inside the function
+[functions.send-test-notification]
+verify_jwt = false
+
+[functions.send-checkin-reminders]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

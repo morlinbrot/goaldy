@@ -1,385 +1,85 @@
-import { HabitGoalsRepository } from '@/lib/sync/repositories/HabitGoalsRepository';
-import { SavingsGoalsRepository } from '@/lib/sync/repositories/SavingsGoalsRepository';
-import { getSyncService } from '@/lib/sync/services/SyncService';
-import {
-    cancelNotificationsByType,
-    checkAndSendDueNotifications,
-    checkNotificationPermission,
-    cleanupOldNotifications,
-    getNotificationPreferences,
-    scheduleNotification,
-    showNotification,
-    type NotificationPreferences
-} from './notifications';
-import type { HabitGoalWithStats, SavingsGoalWithStats } from './types';
-
-// Helper to get current month in YYYY-MM format
-function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Lazily initialized repositories for background use
-let savingsGoalsRepo: SavingsGoalsRepository | null = null;
-let habitGoalsRepo: HabitGoalsRepository | null = null;
-
-function getSavingsGoalsRepository(): SavingsGoalsRepository {
-  if (!savingsGoalsRepo) {
-    savingsGoalsRepo = new SavingsGoalsRepository(getSyncService());
-  }
-  return savingsGoalsRepo;
-}
-
-function getHabitGoalsRepository(): HabitGoalsRepository {
-  if (!habitGoalsRepo) {
-    habitGoalsRepo = new HabitGoalsRepository(getSyncService());
-  }
-  return habitGoalsRepo;
-}
-
-// Background notification checker state
-let notificationCheckInterval: ReturnType<typeof setInterval> | null = null;
-const CHECK_INTERVAL_MS = 60 * 1000; // Check every 60 seconds
-
 /**
- * Schedule monthly check-in reminder using cron.
+ * Notification Initialization
+ *
+ * With FCM (Firebase Cloud Messaging), notifications are sent server-side.
+ * This module handles:
+ * - Registering the device's FCM token on app startup
+ * - Handling push token refresh
+ *
+ * The actual notification scheduling and sending is done by Supabase Edge Functions.
  */
-export async function scheduleMonthlyCheckInReminder(
-  prefs: NotificationPreferences
-): Promise<void> {
-  // Cancel existing monthly check-in notifications
-  await cancelNotificationsByType('monthly_checkin');
 
-  if (!prefs.notifications_enabled || !prefs.monthly_checkin_enabled) {
-    return;
-  }
-
-  await scheduleNotification(
-    'Monthly Savings Check-in',
-    'Time to record your savings for last month! How did you do?',
-    prefs.monthly_checkin_cron,
-    'monthly_checkin'
-  );
-}
+import { isFCMAvailable } from './fcm';
+import { checkNotificationPermission } from './notifications';
+import { initializePushTokens, registerPushToken } from './push-token-service';
 
 /**
- * Schedule progress update notifications using cron.
- */
-export async function scheduleProgressUpdates(
-  prefs: NotificationPreferences
-): Promise<void> {
-  // Cancel existing progress update notifications
-  await cancelNotificationsByType('progress_update');
-
-  if (!prefs.notifications_enabled || !prefs.progress_updates_enabled) {
-    return;
-  }
-
-  const goals = await getSavingsGoalsRepository().getAllWithStats();
-  if (goals.length === 0) return;
-
-  // Pick the goal with highest percentage to highlight
-  const topGoal = goals.reduce((best, goal) =>
-    goal.percentage_complete > best.percentage_complete ? goal : best
-  );
-
-  const progressMessage = generateProgressMessage(topGoal, goals.length);
-
-  await scheduleNotification(
-    'Savings Progress Update',
-    progressMessage,
-    prefs.progress_updates_cron,
-    'progress_update',
-    topGoal.id
-  );
-}
-
-/**
- * Schedule "why" reminder notifications using cron.
- */
-export async function scheduleWhyReminders(
-  prefs: NotificationPreferences
-): Promise<void> {
-  // Cancel existing why reminder notifications
-  await cancelNotificationsByType('why_reminder');
-
-  if (!prefs.notifications_enabled || !prefs.why_reminders_enabled) {
-    return;
-  }
-
-  const goals = await getSavingsGoalsRepository().getAllWithStats();
-  const goalsWithWhy = goals.filter(g => g.why_statement && g.why_statement.trim() !== '');
-  if (goalsWithWhy.length === 0) return;
-
-  // Rotate through goals with why statements (use date-based selection for consistency)
-  const now = new Date();
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
-  const goalIndex = dayOfYear % goalsWithWhy.length;
-  const goal = goalsWithWhy[goalIndex];
-
-  await scheduleNotification(
-    `Remember: ${goal.name}`,
-    `"${goal.why_statement}"`,
-    prefs.why_reminders_cron,
-    'why_reminder',
-    goal.id
-  );
-}
-
-/**
- * Check and send habit alerts for habits approaching or exceeding limits.
- * This is called during the regular notification check cycle.
- */
-export async function checkAndSendHabitAlerts(): Promise<void> {
-  const prefs = await getNotificationPreferences();
-  if (!prefs.notifications_enabled) {
-    return;
-  }
-
-  const habitsNeedingAlert = await getHabitGoalsRepository().getGoalsNeedingAlert(getCurrentMonth());
-
-  for (const habit of habitsNeedingAlert) {
-    const alertMessage = generateHabitAlertMessage(habit);
-
-    // Send immediate notification for critical alerts
-    if (habit.status === 'exceeded') {
-      await showNotification(
-        `Limit Exceeded: ${habit.category_name || habit.name}`,
-        alertMessage
-      );
-    } else if (habit.status === 'warning') {
-      await showNotification(
-        `Approaching Limit: ${habit.category_name || habit.name}`,
-        alertMessage
-      );
-    }
-  }
-}
-
-/**
- * Generate an alert message for a habit goal.
- */
-function generateHabitAlertMessage(habit: HabitGoalWithStats): string {
-  const percentage = Math.round(habit.percentage_used);
-  const remaining = habit.current_month_target - habit.current_month_spent;
-  const categoryName = habit.category_name || 'this category';
-
-  if (habit.status === 'exceeded') {
-    const overBy = Math.abs(remaining);
-    return `You've spent €${overBy.toFixed(0)} over your ${categoryName} limit this month. Consider adjusting your spending.`;
-  } else if (habit.status === 'warning') {
-    return `You've used ${percentage}% of your ${categoryName} budget. Only €${remaining.toFixed(0)} remaining.`;
-  }
-  return `You're on track with ${categoryName}! ${percentage}% used.`;
-}
-
-/**
- * Schedule habit milestone notifications (e.g., streak achievements).
- */
-export async function scheduleHabitMilestoneNotifications(
-  prefs: NotificationPreferences
-): Promise<void> {
-  // Cancel existing habit milestone notifications
-  await cancelNotificationsByType('habit_milestone');
-
-  if (!prefs.notifications_enabled) {
-    return;
-  }
-
-  const habits = await getHabitGoalsRepository().getAllWithStats(getCurrentMonth());
-
-  // Find habits with significant streaks to celebrate
-  for (const habit of habits) {
-    if (habit.current_streak > 0 && habit.current_streak % 3 === 0) {
-      // Celebrate every 3-month milestone
-      await showNotification(
-        `Habit Streak: ${habit.current_streak} Months!`,
-        `Amazing! You've kept your ${habit.category_name || habit.name} spending under control for ${habit.current_streak} months in a row!`
-      );
-    }
-  }
-}
-
-/**
- * Generate a motivational progress message.
- */
-function generateProgressMessage(goal: SavingsGoalWithStats, totalGoals: number): string {
-  const percentage = Math.round(goal.percentage_complete);
-  const goalContext = totalGoals > 1 ? ` (${totalGoals} goals total)` : '';
-
-  if (percentage >= 100) {
-    return `Congratulations! You've reached your goal "${goal.name}"!${goalContext}`;
-  } else if (percentage >= 75) {
-    return `Amazing! You're ${percentage}% toward "${goal.name}". Almost there!${goalContext}`;
-  } else if (percentage >= 50) {
-    return `Halfway there! You're ${percentage}% toward "${goal.name}". Keep going!${goalContext}`;
-  } else if (percentage >= 25) {
-    return `Great progress! You're ${percentage}% toward "${goal.name}".${goalContext}`;
-  } else if (percentage > 0) {
-    return `You're ${percentage}% toward your goal "${goal.name}". Every step counts!${goalContext}`;
-  } else {
-    return `Ready to start saving toward "${goal.name}"? Your journey begins with one step.${goalContext}`;
-  }
-}
-
-/**
- * Reschedule all notifications based on current preferences.
- * Called when preferences change or on app start.
- * Always cancels existing and reschedules to pick up any cron changes.
- */
-export async function rescheduleAllNotifications(): Promise<void> {
-  const prefs = await getNotificationPreferences();
-
-  if (!prefs.notifications_enabled) {
-    // Cancel all scheduled notifications when master toggle is off
-    await cancelNotificationsByType('monthly_checkin');
-    await cancelNotificationsByType('progress_update');
-    await cancelNotificationsByType('why_reminder');
-    console.log('[Notifications] All notifications cancelled (master toggle off)');
-    return;
-  }
-
-  // Always cancel and reschedule to pick up cron changes
-  if (prefs.monthly_checkin_enabled) {
-    await scheduleMonthlyCheckInReminder(prefs);
-  } else {
-    await cancelNotificationsByType('monthly_checkin');
-  }
-
-  if (prefs.progress_updates_enabled) {
-    await scheduleProgressUpdates(prefs);
-  } else {
-    await cancelNotificationsByType('progress_update');
-  }
-
-  if (prefs.why_reminders_enabled) {
-    await scheduleWhyReminders(prefs);
-  } else {
-    await cancelNotificationsByType('why_reminder');
-  }
-}
-
-/**
- * Initialize notification system on app start.
- * - Checks for due notifications and sends them
- * - Ensures future notifications are scheduled
- * - Cleans up old notification records
- * - Starts background checker loop
+ * Initialize the notification system.
+ *
+ * This registers the device for push notifications if:
+ * - The user is authenticated
+ * - FCM is available (Android)
+ * - Notification permission is granted
  */
 export async function initializeNotifications(): Promise<void> {
   try {
-    // Check if we have notification permission
-    const hasPermission = await checkNotificationPermission();
-    if (!hasPermission) {
+    // Check if FCM is available
+    if (!isFCMAvailable()) {
+      console.log('[Notifications] FCM not available on this platform');
+      return;
+    }
+
+    // Check permission status
+    const permissionStatus = await checkNotificationPermission();
+    if (permissionStatus !== 'granted') {
       console.log('[Notifications] Permission not granted, skipping initialization');
       return;
     }
 
-    console.log('[Notifications] Initializing...');
+    console.log('[Notifications] Initializing push token registration...');
 
-    // Check for due notifications (app was closed)
-    await checkAndSendDueNotifications();
-
-    // Ensure upcoming notifications are scheduled
-    await rescheduleAllNotifications();
-
-    // Clean up old notification records
-    await cleanupOldNotifications();
-
-    // Start the background checker
-    startNotificationChecker();
+    // Register push token with backend
+    await initializePushTokens();
 
     console.log('[Notifications] Initialization complete');
   } catch (error) {
-    console.error('Failed to initialize notifications:', error);
+    console.error('[Notifications] Initialization failed:', error);
   }
 }
 
 /**
- * Send a test notification to verify the system works.
+ * Re-register push token.
+ * Call this when notification preferences are enabled.
  */
-export async function sendTestNotification(): Promise<boolean> {
-  try {
-    const hasPermission = await checkNotificationPermission();
-    if (!hasPermission) {
-      return false;
-    }
-
-    await showNotification(
-      'Test Notification',
-      'Notifications are working correctly!'
-    );
-    return true;
-  } catch (error) {
-    console.error('Failed to send test notification:', error);
-    return false;
-  }
-}
-
-/**
- * Start the background notification checker loop.
- * Aligns to run at :02 seconds past each minute to ensure notifications
- * scheduled for :00 have passed.
- */
-export function startNotificationChecker(): void {
-  if (notificationCheckInterval) {
-    console.log('[Notifications] Checker already running');
+export async function refreshPushToken(): Promise<void> {
+  if (!isFCMAvailable()) {
     return;
   }
 
-  // Calculate delay until next minute + 2 seconds
-  const now = new Date();
-  const secondsUntilNextMinute = 60 - now.getSeconds();
-  const msUntilNextMinute = (secondsUntilNextMinute * 1000) - now.getMilliseconds();
-  const initialDelay = msUntilNextMinute + 2000; // +2 seconds past the minute
-
-  console.log(`[Notifications] Starting checker in ${Math.round(initialDelay / 1000)}s (aligning to :02)`);
-
-  // Run immediately on start
-  runNotificationCheck();
-
-  // Wait until :02 of next minute, then start the interval
-  setTimeout(() => {
-    console.log('[Notifications] Checker aligned, running every 60s at :02');
-    runNotificationCheck();
-    notificationCheckInterval = setInterval(runNotificationCheck, CHECK_INTERVAL_MS);
-  }, initialDelay);
+  await registerPushToken();
 }
 
 /**
- * Stop the background notification checker loop.
+ * Send a test notification.
+ * Note: With FCM, this would need to go through the server.
+ * For now, this is a placeholder that returns false.
  */
+export async function sendTestNotification(): Promise<boolean> {
+  console.log('[Notifications] Test notifications require server-side implementation with FCM');
+  // TODO: Implement server endpoint for test notifications
+  return false;
+}
+
+// Legacy exports for compatibility - these are no-ops now
+export async function rescheduleAllNotifications(): Promise<void> {
+  // No-op: Scheduling is now server-side
+  console.log('[Notifications] Notification scheduling is now handled server-side');
+}
+
+export function startNotificationChecker(): void {
+  // No-op: Notifications are pushed by server
+}
+
 export function stopNotificationChecker(): void {
-  if (notificationCheckInterval) {
-    console.log('[Notifications] Stopping checker');
-    clearInterval(notificationCheckInterval);
-    notificationCheckInterval = null;
-  }
-}
-
-/**
- * Run a single notification check cycle.
- */
-async function runNotificationCheck(): Promise<void> {
-  console.log('[Notifications] Running check...');
-  try {
-    const hasPermission = await checkNotificationPermission();
-    if (!hasPermission) {
-      console.log('[Notifications] No permission, skipping');
-      return;
-    }
-
-    // Check and send due notifications
-    await checkAndSendDueNotifications();
-
-    // Check habit alerts (only once per day to avoid spam)
-    const now = new Date();
-    const hourOfDay = now.getHours();
-    // Check habit alerts around 6 PM (18:00) when user might review their day
-    if (hourOfDay === 18 && now.getMinutes() < 2) {
-      await checkAndSendHabitAlerts();
-    }
-  } catch (error) {
-    console.error('[Notifications] Check failed:', error);
-  }
+  // No-op: No local checker needed
 }

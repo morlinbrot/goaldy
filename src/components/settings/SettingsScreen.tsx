@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { dailyAt, everyNDays, monthlyOnDay, parseCron, weeklyOnMonday } from "@/lib/cron";
-import { rescheduleAllNotifications, sendTestNotification } from "@/lib/notification-scheduler";
+import { isFCMAvailable } from "@/lib/fcm";
 import {
     checkNotificationPermission,
     DEFAULT_PREFERENCES,
@@ -13,7 +13,8 @@ import {
     requestNotificationPermission,
     saveNotificationPreferences
 } from "@/lib/notifications";
-import { AlertTriangle, Bell, BellOff, Calendar, Clock, MessageCircle, TestTube } from "lucide-react";
+import { registerPushToken, sendTestPushNotification, unregisterPushToken } from "@/lib/push-token-service";
+import { AlertTriangle, Bell, BellOff, Calendar, Clock, Loader2, MessageCircle, Smartphone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 type Frequency = 'daily' | 'weekly' | 'every_few_days' | 'never';
@@ -45,12 +46,15 @@ export function SettingsScreen() {
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | 'loading'>('loading');
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [testSent, setTestSent] = useState(false);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [fcmAvailable, setFcmAvailable] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load initial state
   useEffect(() => {
     async function load() {
+      setFcmAvailable(isFCMAvailable());
       const status = await checkNotificationPermission();
       setPermissionStatus(status);
 
@@ -78,16 +82,36 @@ export function SettingsScreen() {
       await requestNotificationPermission();
       const actualStatus = await checkNotificationPermission();
       setPermissionStatus(actualStatus);
+
+      if (actualStatus === 'granted') {
+        await registerPushToken();
+      }
     } finally {
       setIsRequestingPermission(false);
     }
   };
 
-  const handleSendTest = async () => {
-    const success = await sendTestNotification();
-    if (success) {
-      setTestSent(true);
-      setTimeout(() => setTestSent(false), 3000);
+  const handleSendTestNotification = async () => {
+    setIsSendingTest(true);
+    setTestResult(null);
+    try {
+      const result = await sendTestPushNotification();
+      setTestResult({
+        success: result.success,
+        message: result.success
+          ? result.message || 'Test notification sent!'
+          : result.error || 'Failed to send test notification'
+      });
+      // Auto-clear result after 5 seconds
+      setTimeout(() => setTestResult(null), 5000);
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'An error occurred'
+      });
+      setTimeout(() => setTestResult(null), 5000);
+    } finally {
+      setIsSendingTest(false);
     }
   };
 
@@ -97,7 +121,15 @@ export function SettingsScreen() {
     try {
       const newPrefs = await saveNotificationPreferences(updates);
       setPrefs(newPrefs);
-      await rescheduleAllNotifications();
+
+      // Handle push token registration based on master toggle
+      if (updates.notifications_enabled !== undefined) {
+        if (updates.notifications_enabled) {
+          await registerPushToken();
+        } else {
+          await unregisterPushToken();
+        }
+      }
     } catch (error) {
       console.error('Failed to save preferences:', error);
     } finally {
@@ -369,29 +401,46 @@ export function SettingsScreen() {
           </CardContent>
         </Card>
 
-        {/* Test Notification */}
+        {/* Push Notification Status */}
         {!notificationsDisabled && prefs.notifications_enabled && (
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <TestTube className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium">Test Notification</p>
-                    <p className="text-sm text-muted-foreground">
-                      Send a test to verify it's working
-                    </p>
-                  </div>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Smartphone className="w-5 h-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <p className="font-medium">Push Notifications</p>
+                  <p className="text-sm text-muted-foreground">
+                    {fcmAvailable
+                      ? "Your device is registered for push notifications"
+                      : "Push notifications are only available on Android"}
+                  </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSendTest}
-                  disabled={testSent}
-                >
-                  {testSent ? 'Sent!' : 'Send Test'}
-                </Button>
               </div>
+              {fcmAvailable && (
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSendTestNotification}
+                    disabled={isSendingTest}
+                    className="w-full"
+                  >
+                    {isSendingTest ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      'Send Test Notification'
+                    )}
+                  </Button>
+                  {testResult && (
+                    <p className={`text-sm text-center ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                      {testResult.message}
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

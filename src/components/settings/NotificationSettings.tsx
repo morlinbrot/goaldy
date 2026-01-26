@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { dailyAt, everyNDays, monthlyOnDay, parseCron, weeklyOnMonday } from "@/lib/cron";
-import { rescheduleAllNotifications, sendTestNotification } from "@/lib/notification-scheduler";
+import { isFCMAvailable } from "@/lib/fcm";
 import {
     checkNotificationPermission,
     DEFAULT_PREFERENCES,
@@ -12,7 +12,8 @@ import {
     requestNotificationPermission,
     saveNotificationPreferences
 } from "@/lib/notifications";
-import { AlertTriangle, ArrowLeft, Bell, BellOff, Calendar, Clock, MessageCircle, TestTube } from "lucide-react";
+import { registerPushToken, sendTestPushNotification, unregisterPushToken } from "@/lib/push-token-service";
+import { AlertTriangle, ArrowLeft, Bell, BellOff, Calendar, Clock, Loader2, MessageCircle, Smartphone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 interface NotificationSettingsProps {
@@ -48,12 +49,17 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | 'loading'>('loading');
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [testSent, setTestSent] = useState(false);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [fcmAvailable, setFcmAvailable] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load preferences from database (and sync first if online)
   // This ensures we always have the latest data when opening this view
   const loadPreferences = useCallback(async () => {
+    // Check if FCM is available
+    setFcmAvailable(isFCMAvailable());
+
     // Check permission status
     const status = await checkNotificationPermission();
     setPermissionStatus(status);
@@ -89,16 +95,13 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
       // Re-check the actual status after the system dialog closes
       const actualStatus = await checkNotificationPermission();
       setPermissionStatus(actualStatus);
+
+      // If permission granted, register push token
+      if (actualStatus === 'granted') {
+        await registerPushToken();
+      }
     } finally {
       setIsRequestingPermission(false);
-    }
-  };
-
-  const handleSendTest = async () => {
-    const success = await sendTestNotification();
-    if (success) {
-      setTestSent(true);
-      setTimeout(() => setTestSent(false), 3000);
     }
   };
 
@@ -108,7 +111,15 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
     try {
       const newPrefs = await saveNotificationPreferences(updates);
       setPrefs(newPrefs);
-      await rescheduleAllNotifications();
+
+      // Handle push token registration based on master toggle
+      if (updates.notifications_enabled !== undefined) {
+        if (updates.notifications_enabled) {
+          await registerPushToken();
+        } else {
+          await unregisterPushToken();
+        }
+      }
     } catch (error) {
       console.error('Failed to save preferences:', error);
     } finally {
@@ -387,29 +398,60 @@ export function NotificationSettings({ onBack }: NotificationSettingsProps) {
           </CardContent>
         </Card>
 
-        {/* Test Notification */}
+        {/* Push Notification Status */}
         {!notificationsDisabled && prefs.notifications_enabled && (
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <TestTube className="w-5 h-5 text-muted-foreground" />
+            <CardContent className="p-4 space-y-4">
+              <div className="flex items-center gap-3">
+                <Smartphone className="w-5 h-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <p className="font-medium">Push Notifications</p>
+                  <p className="text-sm text-muted-foreground">
+                    {fcmAvailable
+                      ? "Your device is registered for push notifications"
+                      : "Push notifications are only available on Android"}
+                  </p>
+                </div>
+              </div>
+              {fcmAvailable && (
+                <div className="flex items-center justify-between pt-2 border-t">
                   <div>
-                    <p className="font-medium">Test Notification</p>
-                    <p className="text-sm text-muted-foreground">
-                      Send a test to verify it's working
+                    <p className="text-sm font-medium">Test Notification</p>
+                    <p className="text-xs text-muted-foreground">
+                      {testResult
+                        ? (testResult.success ? testResult.message : testResult.message)
+                        : "Send a test push to verify it's working"}
                     </p>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      setIsSendingTest(true);
+                      setTestResult(null);
+                      const result = await sendTestPushNotification();
+                      setTestResult({
+                        success: result.success,
+                        message: result.success
+                          ? (result.message || 'Sent!')
+                          : (result.error || 'Failed to send')
+                      });
+                      setIsSendingTest(false);
+                      // Clear result after 5 seconds
+                      setTimeout(() => setTestResult(null), 5000);
+                    }}
+                    disabled={isSendingTest}
+                  >
+                    {isSendingTest ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : testResult?.success ? (
+                      'Sent!'
+                    ) : (
+                      'Send Test'
+                    )}
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSendTest}
-                  disabled={testSent}
-                >
-                  {testSent ? 'Sent!' : 'Send Test'}
-                </Button>
-              </div>
+              )}
             </CardContent>
           </Card>
         )}

@@ -1,15 +1,26 @@
-import { getBrowserDatabase } from './browser-database';
-import { getNextExecutionTime } from './cron';
-import { isTauri } from './platform';
-import { generateId } from './types';
+/**
+ * Notification Preferences Management
+ *
+ * This module manages notification preferences that are synced to Supabase.
+ * Actual push notifications are sent server-side via FCM (Firebase Cloud Messaging).
+ *
+ * The flow is:
+ * 1. User configures preferences in the app
+ * 2. Preferences sync to Supabase
+ * 3. Supabase Edge Functions check preferences and send FCM pushes
+ * 4. FCM delivers to the user's device
+ */
 
-// Database interface that both Tauri SQLite and BrowserDatabase implement
+import { getBrowserDatabase } from './browser-database';
+import { isTauri } from './platform';
+
+// Database interface
 interface DatabaseInterface {
   execute(query: string, params?: unknown[]): Promise<{ rowsAffected: number }>;
   select<T>(query: string, params?: unknown[]): Promise<T>;
 }
 
-// Notification types
+// Notification types (for reference - actual sending is server-side)
 export type NotificationType = 'monthly_checkin' | 'progress_update' | 'why_reminder' | 'habit_alert' | 'habit_milestone';
 
 // Default cron expressions
@@ -37,19 +48,6 @@ export interface NotificationPreferences {
   // Timestamps
   created_at: string;
   updated_at: string;
-}
-
-export interface ScheduledNotification {
-  id: string;
-  user_id: string | null;
-  notification_type: NotificationType;
-  goal_id: string | null;
-  title: string;
-  body: string;
-  scheduled_at: string;
-  cron_expression: string | null;
-  sent_at: string | null;
-  created_at: string;
 }
 
 // Raw database row type (SQLite stores booleans as integers)
@@ -90,11 +88,9 @@ let notifDb: DatabaseInterface | null = null;
 async function getNotificationDatabase(): Promise<DatabaseInterface> {
   if (!notifDb) {
     if (isTauri()) {
-      // Use Tauri SQLite plugin
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       notifDb = await Database.load("sqlite:goaldy.db");
     } else {
-      // Use browser sql.js database
       const browserDb = getBrowserDatabase();
       await browserDb.init();
       notifDb = browserDb;
@@ -118,11 +114,9 @@ async function queueChange(tableName: string, recordId: string, operation: 'inse
   const userId = await getCurrentUserId();
   if (!userId) return;
 
-  // Import SyncQueue and enqueue the change
   const { SyncQueue } = await import('@/lib/sync/services/SyncQueue');
   const { SYNC_TABLES } = await import('@/lib/sync/types');
 
-  // Map table name to sync table if it's a known sync table
   const syncTableName = tableName as keyof typeof SYNC_TABLES;
   if (!(syncTableName in SYNC_TABLES)) {
     console.warn(`[notifications] Unknown sync table: ${tableName}`);
@@ -136,148 +130,35 @@ async function queueChange(tableName: string, recordId: string, operation: 'inse
 export type PermissionStatus = 'granted' | 'denied' | 'unavailable';
 
 /**
- * Check if notifications are supported and permission is granted.
- * Returns 'unavailable' if the notification system cannot be accessed.
+ * Check if push notifications are available.
+ * On Android with FCM, this checks if the FCM bridge is available.
+ * On other platforms, returns 'unavailable'.
  */
 export async function checkNotificationPermission(): Promise<PermissionStatus> {
-  if (isTauri()) {
-    try {
-      const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
-      const granted = await isPermissionGranted();
-      return granted ? 'granted' : 'denied';
-    } catch (error) {
-      console.error('Failed to check notification permission:', error);
-      return 'unavailable';
-    }
-  } else {
-    // Browser mode - check Web Notifications API
-    if (!('Notification' in window)) {
-      return 'unavailable';
-    }
-    if (Notification.permission === 'granted') {
-      return 'granted';
-    }
-    if (Notification.permission === 'denied') {
-      return 'denied';
-    }
-    return 'denied'; // 'default' state - not yet requested
+  // Check if FCM is available (Android)
+  if (typeof window !== 'undefined' && window.GoaldyFCM) {
+    // FCM is available - Android handles permissions at the OS level
+    // The user will be prompted by Android when first registering for notifications
+    return 'granted';
   }
+
+  // For browser/desktop, notifications are not supported via FCM
+  // Return 'unavailable' since we're moving to server-side push
+  return 'unavailable';
 }
 
 /**
- * Request notification permission from the user.
- * Returns 'unavailable' if the notification system cannot be accessed.
+ * Request notification permission.
+ * On Android, this triggers the FCM token request which may prompt the user.
  */
 export async function requestNotificationPermission(): Promise<PermissionStatus> {
-  if (isTauri()) {
-    try {
-      const { requestPermission } = await import('@tauri-apps/plugin-notification');
-      const permission = await requestPermission();
-      return permission === 'granted' ? 'granted' : 'denied';
-    } catch (error) {
-      console.error('Failed to request notification permission:', error);
-      return 'unavailable';
-    }
-  } else {
-    // Browser mode - use Web Notifications API
-    if (!('Notification' in window)) {
-      return 'unavailable';
-    }
-    try {
-      const permission = await Notification.requestPermission();
-      return permission === 'granted' ? 'granted' : 'denied';
-    } catch (error) {
-      console.error('Failed to request notification permission:', error);
-      return 'unavailable';
-    }
-  }
-}
-
-/**
- * Send an immediate notification.
- */
-export async function showNotification(title: string, body: string): Promise<void> {
-  const permissionStatus = await checkNotificationPermission();
-  if (permissionStatus !== 'granted') {
-    console.warn('Notification permission not granted:', permissionStatus);
-    return;
+  if (typeof window !== 'undefined' && window.GoaldyFCM) {
+    // Request FCM token - this will trigger Android permission prompt if needed
+    window.GoaldyFCM.requestToken();
+    return 'granted';
   }
 
-  if (isTauri()) {
-    try {
-      const { sendNotification } = await import('@tauri-apps/plugin-notification');
-      await sendNotification({ title, body });
-      console.log(`[Notifications] Sent: "${title}"`);
-    } catch (error) {
-      console.error('Failed to send notification:', error);
-    }
-  } else {
-    // Browser mode - use Web Notifications API
-    try {
-      new Notification(title, { body });
-      console.log(`[Notifications] Sent: "${title}"`);
-    } catch (error) {
-      console.error('Failed to send notification:', error);
-    }
-  }
-}
-
-/**
- * Schedule a notification with a cron expression.
- */
-export async function scheduleNotification(
-  title: string,
-  body: string,
-  cronExpression: string,
-  type: NotificationType,
-  goalId?: string
-): Promise<string> {
-  const permissionStatus = await checkNotificationPermission();
-  if (permissionStatus !== 'granted') {
-    throw new Error(`Notification permission not granted: ${permissionStatus}`);
-  }
-
-  const nextExecution = getNextExecutionTime(cronExpression);
-  if (!nextExecution) {
-    throw new Error(`Invalid cron expression: ${cronExpression}`);
-  }
-
-  const db = await getNotificationDatabase();
-  const userId = await getCurrentUserId();
-  const nowStr = new Date().toISOString();
-  const id = generateId();
-
-  console.log(`[Notifications] Scheduling "${title}" with cron "${cronExpression}", next: ${nextExecution.toISOString()}`);
-
-  await db.execute(
-    `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [id, userId, type, goalId || null, title, body, nextExecution.toISOString(), cronExpression, nowStr, nowStr]
-  );
-
-  return id;
-}
-
-/**
- * Cancel all scheduled notifications of a specific type.
- */
-export async function cancelNotificationsByType(type: NotificationType): Promise<void> {
-  const db = await getNotificationDatabase();
-  await db.execute(
-    `DELETE FROM scheduled_notifications WHERE notification_type = $1 AND sent_at IS NULL`,
-    [type]
-  );
-  console.log(`[Notifications] Cancelled all ${type} notifications`);
-}
-
-/**
- * Get all pending scheduled notifications.
- */
-export async function getScheduledNotifications(): Promise<ScheduledNotification[]> {
-  const db = await getNotificationDatabase();
-  return db.select<ScheduledNotification[]>(
-    `SELECT * FROM scheduled_notifications WHERE sent_at IS NULL ORDER BY scheduled_at ASC`
-  );
+  return 'unavailable';
 }
 
 /**
@@ -433,102 +314,14 @@ export async function saveNotificationPreferences(
   return savedPrefs;
 }
 
-/**
- * Check if current time is within quiet hours.
- */
-export function isWithinQuietHours(prefs: NotificationPreferences): boolean {
-  if (!prefs.quiet_hours_enabled) return false;
-
-  const now = new Date();
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const { quiet_hours_start: start, quiet_hours_end: end } = prefs;
-
-  // Handle overnight quiet hours (e.g., 22:00 to 08:00)
-  if (start > end) {
-    return currentTime >= start || currentTime < end;
+// Extend Window interface for FCM bridge
+declare global {
+  interface Window {
+    GoaldyFCM?: {
+      getToken(): string;
+      requestToken(): void;
+      isTokenSent(): boolean;
+      markTokenSent(): void;
+    };
   }
-  return currentTime >= start && currentTime < end;
-}
-
-/**
- * Check for due notifications and send them.
- */
-export async function checkAndSendDueNotifications(): Promise<void> {
-  const db = await getNotificationDatabase();
-  const now = new Date();
-  const nowStr = now.toISOString();
-
-  const prefs = await getNotificationPreferences();
-
-  if (!prefs.notifications_enabled) {
-    console.log('[Notifications] Skipping check - notifications disabled');
-    return;
-  }
-
-  if (isWithinQuietHours(prefs)) {
-    console.log('[Notifications] Skipping check - quiet hours active');
-    return;
-  }
-
-  const dueNotifications = await db.select<ScheduledNotification[]>(
-    `SELECT * FROM scheduled_notifications
-     WHERE scheduled_at <= $1 AND sent_at IS NULL
-     ORDER BY scheduled_at ASC`,
-    [nowStr]
-  );
-
-  console.log(`[Notifications] Found ${dueNotifications.length} due notifications`);
-
-  for (const notification of dueNotifications) {
-    console.log(`[Notifications] Processing: "${notification.title}" (scheduled: ${notification.scheduled_at})`);
-
-    try {
-      await showNotification(notification.title, notification.body);
-
-      await db.execute(
-        `UPDATE scheduled_notifications SET sent_at = $1 WHERE id = $2`,
-        [nowStr, notification.id]
-      );
-
-      // Reschedule recurring notifications
-      if (notification.cron_expression) {
-        const nextExecution = getNextExecutionTime(notification.cron_expression);
-        if (nextExecution) {
-          console.log(`[Notifications] Next occurrence: ${nextExecution.toISOString()}`);
-          await db.execute(
-            `INSERT INTO scheduled_notifications (id, user_id, notification_type, goal_id, title, body, scheduled_at, cron_expression, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [
-              generateId(),
-              notification.user_id,
-              notification.notification_type,
-              notification.goal_id,
-              notification.title,
-              notification.body,
-              nextExecution.toISOString(),
-              notification.cron_expression,
-              nowStr,
-              nowStr
-            ]
-          );
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to send notification ${notification.id}:`, error);
-    }
-  }
-}
-
-/**
- * Clean up old sent notifications (older than 30 days).
- */
-export async function cleanupOldNotifications(): Promise<void> {
-  const db = await getNotificationDatabase();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30);
-
-  await db.execute(
-    `DELETE FROM scheduled_notifications WHERE sent_at IS NOT NULL AND sent_at < $1`,
-    [cutoff.toISOString()]
-  );
 }

@@ -27,3 +27,12 @@ clear:
     cd src-tauri/gen/android && ./gradlew clean && cd ../../.. && \
     adb uninstall app.goaldy.budget; \
     npm run tauri android build -- --target aarch64 --debug
+
+sb-link:
+    supabase link --project-ref ajyomlfpzdoohnudgwfg
+
+sb-deploy: sb-link
+    supabase functions deploy
+
+encode private_key:
+    echo -n {{ private_key }} | base64

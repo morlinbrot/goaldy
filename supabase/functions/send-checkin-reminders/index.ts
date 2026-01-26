@@ -2,6 +2,7 @@
 // This function runs on a schedule and sends reminders to users who need to check in
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendPushNotification } from '../_shared/fcm.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,8 +17,9 @@ interface NotificationPreference {
   timezone: string
 }
 
-interface UserProfile {
-  email: string
+interface PushToken {
+  token: string
+  platform: string
 }
 
 Deno.serve(async (req) => {
@@ -144,25 +146,47 @@ Deno.serve(async (req) => {
           continue
         }
 
-        // Get user's email from profiles
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('id', pref.user_id)
-          .single()
+        // Get user's push tokens
+        const { data: pushTokens, error: tokensError } = await supabase
+          .from('push_tokens')
+          .select('token, platform')
+          .eq('user_id', pref.user_id)
 
-        if (profileError || !profile) {
-          console.error(`Failed to fetch profile for user ${pref.user_id}:`, profileError)
+        if (tokensError) {
+          console.error(`Failed to fetch push tokens for user ${pref.user_id}:`, tokensError)
           continue
         }
 
-        // Log the notification (in production, this would send an email or push notification)
-        console.log(`Would notify user ${pref.user_id} (${profile.email}) about ${goalsNeedingCheckIn.length} goals needing check-in`)
+        if (!pushTokens || pushTokens.length === 0) {
+          console.log(`User ${pref.user_id} has no push tokens registered`)
+          continue
+        }
 
-        // TODO: Integrate with email service (SendGrid, Resend, etc.) or push notification service
-        // For now, we just log the intent
+        // Build notification message
+        const goalCount = goalsNeedingCheckIn.length
+        const title = 'Monthly Savings Check-in'
+        const body = goalCount === 1
+          ? `Time to record your savings for "${goalsNeedingCheckIn[0].name}"! How did you do last month?`
+          : `Time to check in on ${goalCount} savings goals! How did you do last month?`
 
-        notifiedCount++
+        // Send push notification to all user's devices
+        for (const pushToken of pushTokens as PushToken[]) {
+          const result = await sendPushNotification(pushToken.token, {
+            title,
+            body,
+            data: {
+              type: 'monthly_checkin',
+              goal_count: String(goalCount),
+            },
+          })
+
+          if (result.success) {
+            console.log(`Sent push notification to user ${pref.user_id} (${pushToken.platform})`)
+            notifiedCount++
+          } else {
+            console.error(`Failed to send push to user ${pref.user_id}:`, result.error)
+          }
+        }
       } catch (userError) {
         console.error(`Failed to process user ${pref.user_id}:`, userError)
       }

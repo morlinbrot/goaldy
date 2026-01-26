@@ -274,7 +274,6 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Goal**: App reaches out to you.
 
-- [x] Local notifications via Tauri notification plugin (offline-first approach)
 - [x] Backend: Scheduled jobs for notifications (Supabase Edge Functions)
 - [x] Notification types:
   - Monthly check-in reminder (2nd of month)
@@ -284,7 +283,7 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 **Outcome**: App actively engages you even when closed.
 
-**Note**: FCM for mobile push notifications deferred to when mobile builds become priority. Current implementation uses Tauri's native notification plugin for local notifications, which aligns with the offline-first principle.
+**Note**: Notification preferences are stored locally and synced to Supabase. Actual push delivery is handled server-side via FCM (see Phase 9).
 
 ---
 
@@ -345,19 +344,49 @@ Goaldy is a personal budgeting and savings motivation app. It prioritizes **spee
 
 ---
 
-### Phase 9: Mobile Push Notifications (FCM)
+### Phase 9: Mobile Push Notifications (FCM) - Android
 
-**Goal**: True push notifications for mobile devices.
+**Goal**: True push notifications for Android devices.
 
-- [ ] Firebase project setup and configuration
-- [ ] FCM integration for Android (Tauri mobile build)
-- [ ] APNs integration for iOS (Tauri mobile build)
-- [ ] Push token registration and management
-- [ ] Server-side push delivery via Supabase Edge Functions
-- [ ] Background notification handling
+- [x] Firebase project setup and configuration
+- [x] FCM integration for Android (Tauri mobile build)
+  - Added Firebase dependencies to Android build
+  - Created `GoaldyFirebaseMessagingService.kt` for handling FCM messages
+  - Created JavaScript bridge in `MainActivity.kt` for token management
+- [x] Push token registration and management
+  - TypeScript FCM service (`src/lib/fcm.ts`)
+  - Push token service (`src/lib/push-token-service.ts`)
+  - Supabase `push_tokens` table for storing device tokens
+- [x] Server-side push delivery via Supabase Edge Functions
+  - FCM utility (`supabase/functions/_shared/fcm.ts`)
+  - Updated `send-checkin-reminders` Edge Function to send via FCM
+- [x] Background and foreground notification handling
 - [ ] Notification action handlers (deep links to goals)
 
-**Outcome**: Users receive notifications even when the app is completely closed on mobile.
+**Outcome**: Android users receive notifications even when the app is completely closed.
+
+**Setup Required**:
+
+1. Create Firebase project at console.firebase.google.com
+2. Add Android app with package name `app.goaldy.budget`
+3. Download `google-services.json` and place in `src-tauri/gen/android/app/`
+4. Set Supabase Edge Function secrets:
+   - `FCM_PROJECT_ID`: Your Firebase project ID
+   - `FCM_SERVICE_ACCOUNT_EMAIL`: Service account email
+   - `FCM_PRIVATE_KEY`: Service account private key (from Firebase Admin SDK)
+
+---
+
+### Phase 9.1: iOS Push Notifications (APNs) - Deferred
+
+**Goal**: Push notifications for iOS devices.
+
+- [ ] Apple Developer account setup
+- [ ] APNs certificate/key generation
+- [ ] iOS FCM configuration (FCM wraps APNs)
+- [ ] iOS-specific notification handling
+
+**Note**: Deferred until iOS builds become priority. Requires Apple Developer Program membership ($99/year).
 
 ---
 
@@ -472,6 +501,18 @@ CREATE TABLE sync_queue (
   operation TEXT NOT NULL, -- 'insert', 'update', 'delete'
   payload TEXT NOT NULL, -- JSON
   created_at TEXT NOT NULL
+);
+
+-- Push notification tokens (FCM)
+CREATE TABLE push_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token TEXT NOT NULL,
+  platform TEXT NOT NULL, -- 'android', 'ios', 'web'
+  device_info TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(user_id, token)
 );
 ```
 

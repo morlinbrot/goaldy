@@ -286,6 +286,27 @@ CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_user ON dead_letter_queue(user_
 CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_table ON dead_letter_queue(table_name);
     `,
   },
+  {
+    name: '00003_push_tokens',
+    sql: `
+-- ============================================
+-- Push Tokens for FCM (Firebase Cloud Messaging)
+-- ============================================
+CREATE TABLE IF NOT EXISTS push_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  device_info TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(user_id, token)
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_push_tokens_platform ON push_tokens(platform);
+    `,
+  },
 ];
 
 /**
