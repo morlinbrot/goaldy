@@ -7,6 +7,7 @@ import { useBackNavigation } from "@/hooks/useBackNavigation";
 import { initializeNotifications } from "@/lib/notification-scheduler";
 import type { Budget } from "@/lib/types";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
@@ -36,9 +37,6 @@ export function RootLayout({ children }: RootLayoutProps) {
   const {
     isAuthenticated,
     isLoading: authLoading,
-    skipAuth,
-    isConfigured,
-    hasSkippedAuth,
   } = useAuth();
   const { isReady: isSyncReady, hasCompletedInitialSync } = useSync();
   const budgetsRepo = useBudgetsRepository();
@@ -81,25 +79,17 @@ export function RootLayout({ children }: RootLayoutProps) {
     }
 
     async function initializeApp() {
-      // If Supabase is not configured, skip auth automatically and continue
-      if (!isConfigured && !hasSkippedAuth) {
-        console.log('[App] Supabase not configured, skipping auth');
-        skipAuth();
-        // Don't return - skipAuth will trigger a re-render with hasSkippedAuth=true
-        return;
-      }
-
-      // If not authenticated and hasn't skipped, show login
-      if (!isAuthenticated && !hasSkippedAuth) {
+      // If not authenticated, always redirect to login
+      if (!isAuthenticated) {
+        console.log('[App] Not authenticated, redirecting to login');
         navigate({ to: "/login" });
         setIsInitialized(true);
         return;
       }
 
-      // At this point we're either authenticated or skipped auth
-      // If authenticated, wait for the initial sync to complete
+      // Wait for the initial sync to complete
       // This is critical for fresh installs - we need to pull remote data first
-      if (isAuthenticated && !hasCompletedInitialSync) {
+      if (!hasCompletedInitialSync) {
         console.log('[App] Waiting for initial sync to complete...');
         return; // Will re-run when hasCompletedInitialSync becomes true
       }
@@ -140,7 +130,7 @@ export function RootLayout({ children }: RootLayoutProps) {
 
     initializeApp();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isAuthenticated, hasSkippedAuth, isConfigured, isSyncReady, hasCompletedInitialSync]);
+  }, [authLoading, isAuthenticated, isSyncReady, hasCompletedInitialSync]);
 
   // Handle navigation after login (when already initialized)
   useEffect(() => {
@@ -172,11 +162,20 @@ export function RootLayout({ children }: RootLayoutProps) {
                         !location.pathname.startsWith("/signup") &&
                         isInitialized;
 
-  // Show loading screen only during initial auth check
+  // Determine what we're waiting for to show appropriate loading message
+  const getLoadingMessage = () => {
+    if (authLoading) return "Checking authentication...";
+    if (!isSyncReady) return "Initializing...";
+    if (isAuthenticated && !hasCompletedInitialSync) return "Syncing data...";
+    return "Loading...";
+  };
+
+  // Show loading screen until all initialization is complete
   if (authLoading || !isInitialized) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">{getLoadingMessage()}</p>
       </div>
     );
   }

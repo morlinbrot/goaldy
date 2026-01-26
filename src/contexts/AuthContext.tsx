@@ -8,9 +8,7 @@ interface AuthContextValue extends AuthState {
   signup: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
-  skipAuth: () => void;
   isConfigured: boolean;
-  hasSkippedAuth: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,7 +22,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasSkippedAuth, setHasSkippedAuth] = useState(false);
 
   const isConfigured = isSupabaseConfigured();
 
@@ -56,7 +53,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email: session.email,
       });
       setIsAuthenticated(true);
-      setHasSkippedAuth(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
@@ -76,7 +72,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email: session.email,
       });
       setIsAuthenticated(true);
-      setHasSkippedAuth(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Signup failed';
       setError(message);
@@ -106,11 +101,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setError(null);
   }, []);
 
-  const skipAuth = useCallback(() => {
-    setHasSkippedAuth(true);
-    setIsLoading(false);
-  }, []);
-
   const value: AuthContextValue = {
     user,
     isAuthenticated,
@@ -120,9 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signup,
     logout,
     clearError,
-    skipAuth,
     isConfigured,
-    hasSkippedAuth,
   };
 
   return (

@@ -6,22 +6,27 @@ import { runMigrations } from "./lib/migrations";
 import { router } from "./router";
 
 // Run migrations before rendering the app
-runMigrations()
-  .then((result) => {
+// We MUST wait for migrations to complete before rendering,
+// otherwise auth and other services may try to access tables that don't exist yet
+async function initializeApp() {
+  try {
+    const result = await runMigrations();
     if (result.errors.length > 0) {
       console.error('[App] Migration errors:', result.errors);
     }
     if (result.applied.length > 0) {
       console.log('[App] Applied migrations:', result.applied);
     }
-  })
-  .catch((error) => {
+  } catch (error) {
     console.error('[App] Failed to run migrations:', error);
-  })
-  .finally(() => {
-    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-      <React.StrictMode>
-        <RouterProvider router={router} />
-      </React.StrictMode>,
-    );
-  });
+    // Continue anyway - the app may still work if tables exist from a previous run
+  }
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <RouterProvider router={router} />
+    </React.StrictMode>,
+  );
+}
+
+initializeApp();

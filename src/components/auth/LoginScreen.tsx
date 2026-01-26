@@ -1,18 +1,17 @@
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
+import { useState } from 'react';
 
 interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<void>;
   onSignupClick: () => void;
-  onSkip: () => void;
   error: string | null;
   isLoading: boolean;
 }
 
-export function LoginScreen({ onLogin, onSignupClick, onSkip, error, isLoading }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onSignupClick, error, isLoading }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -123,16 +122,6 @@ export function LoginScreen({ onLogin, onSignupClick, onSkip, error, isLoading }
               disabled={isLoading}
             >
               Create an account
-            </Button>
-
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full text-muted-foreground"
-              onClick={onSkip}
-              disabled={isLoading}
-            >
-              Continue without account
             </Button>
           </div>
         </CardContent>

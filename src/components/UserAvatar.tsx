@@ -1,6 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "@tanstack/react-router";
-import { LogOut, User } from "lucide-react";
+import { LogIn, LogOut, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -17,7 +17,16 @@ export function UserAvatar() {
   const navigate = useNavigate();
 
   if (!isAuthenticated || !user) {
-    return null;
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => navigate({ to: "/login" })}
+        aria-label="Sign in"
+      >
+        <LogIn className="w-5 h-5" />
+      </Button>
+    );
   }
 
   const handleLogout = async () => {

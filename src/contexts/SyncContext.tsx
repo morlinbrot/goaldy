@@ -38,7 +38,7 @@ interface SyncProviderProps {
 }
 
 export function SyncProvider({ children }: SyncProviderProps) {
-  const { isAuthenticated, isConfigured } = useAuth();
+  const { isAuthenticated, isConfigured, isLoading } = useAuth();
   const { syncService, isInitialized } = useRepositories();
 
   const [status, setStatus] = useState<SyncStatus>({
@@ -120,6 +120,11 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
   // Trigger initial sync when authenticated
   useEffect(() => {
+    // Don't do anything while auth is still loading - wait for it to settle
+    if (isLoading) {
+      return;
+    }
+
     if (isAuthenticated && isConfigured && isInitialized && syncService.isOnline) {
       console.log('[SyncContext] Starting initial sync...');
       syncService.fullSync().then((result) => {
@@ -130,12 +135,13 @@ export function SyncProvider({ children }: SyncProviderProps) {
         console.error('[SyncContext] Initial sync failed:', error);
         setHasCompletedInitialSync(true); // Still mark as complete so app can proceed
       });
-    } else if (!isAuthenticated || !isConfigured) {
-      // If not authenticated or not configured, mark initial sync as "complete"
+    } else if (!isConfigured) {
+      // If Supabase is not configured, mark initial sync as "complete"
       // so the app doesn't wait for a sync that will never happen
+      // Note: We don't mark complete when just not authenticated - the user needs to log in first
       setHasCompletedInitialSync(true);
     }
-  }, [isAuthenticated, isConfigured, isInitialized]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isConfigured, isInitialized, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async (): Promise<SyncResult> => {
     console.log('[SyncContext] sync() called', { isAuthenticated, isConfigured, isInitialized });

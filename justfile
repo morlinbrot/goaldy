@@ -20,3 +20,10 @@ db:
 
 del:
     rm -f ~/Library/Application\ Support/app.goaldy.budget/goaldy.db && echo "Database deleted successfully"
+
+clear:
+    !#/bin/bash
+    rm -rf dist node_modules/.vite && \
+    cd src-tauri/gen/android && ./gradlew clean && cd ../../.. && \
+    adb uninstall app.goaldy.budget; \
+    npm run tauri android build -- --target aarch64 --debug
